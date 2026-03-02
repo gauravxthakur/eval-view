@@ -394,33 +394,36 @@ model:
     else:
         console.print("\n[yellow]⚠️  .evalview/config.yaml already exists[/yellow]")
 
-    # Create example test case (simple calculator that works with the demo agent)
-    example_path = base_path / "tests" / "test-cases" / "example.yaml"
+    # Create a blank template test case
+    example_path = base_path / "tests" / "test-cases" / "my-first-test.yaml"
     if not example_path.exists():
-        example_content = """name: "Hello World - Calculator"
-description: "Simple test to verify EvalView is working"
+        example_content = f"""# Replace this with a real query your agent can answer
+name: "my-first-test"
+description: "Test that my agent responds correctly"
+
+# Point this at your running agent
+endpoint: {endpoint}
+adapter: http
 
 input:
-  query: "What is 2 plus 3?"
+  query: "Hello, what can you help me with?"
 
 expected:
-  tools:
-    - calculator
   output:
     contains:
-      - "5"
+      - ""   # Add a word or phrase you expect in the response
     not_contains:
       - "error"
 
 thresholds:
   min_score: 70
-  max_cost: 0.10
-  max_latency: 5000
+  max_latency: 10000
 """
         example_path.write_text(example_content)
-        console.print("[green]✅ Created tests/test-cases/example.yaml[/green]")
+        console.print(f"[green]✅ Created tests/test-cases/my-first-test.yaml[/green]")
+        console.print(f"[dim]   Edit it to match what your agent actually does[/dim]")
     else:
-        console.print("[yellow]⚠️  tests/test-cases/example.yaml already exists[/yellow]")
+        console.print("[yellow]⚠️  tests/test-cases/my-first-test.yaml already exists[/yellow]")
 
     # Create demo agent directory and files
     demo_agent_dir = base_path / "demo-agent"
