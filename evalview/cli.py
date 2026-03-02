@@ -302,6 +302,150 @@ def _detect_agent_endpoint() -> Optional[str]:
     return f"http://localhost:{open_ports[0]}/"
 
 
+def _autogen_tests(endpoint: str, tests_dir: Path) -> int:
+    """Probe the agent and generate test YAML files from real responses.
+
+    Strategy:
+    1. Send a capability probe to discover what the agent does
+    2. Extract 2 example queries from the response
+    3. Send those queries and capture real responses
+    4. Generate test YAMLs with stable phrases as assertions
+
+    Returns number of tests generated.
+    """
+    import re
+
+    def _extract_example_queries(text: str) -> List[str]:
+        """Pull out quoted or bulleted example queries from agent response."""
+        # Match lines like: - "Show me the latest pain points"  or  - Show me X
+        quoted = re.findall(r'["\u201c\u201d]([^"\u201c\u201d]{10,80})["\u201c\u201d]', text)
+        bulleted = re.findall(r'[-•]\s+"?([A-Z][^"\n]{10,60})"?', text)
+        candidates = quoted + bulleted
+        # Filter out meta-sentences (not real queries)
+        return [q.strip() for q in candidates if "?" in q or q[0].isupper()][:3]
+
+    def _stable_phrases(text: str) -> List[str]:
+        """Extract 1-2 short phrases likely to appear in future responses."""
+        # Take first non-empty line, strip markdown, limit to 30 chars
+        lines = [l.strip().lstrip("#*• ") for l in text.splitlines() if l.strip()]
+        phrases = []
+        for line in lines[:5]:
+            # Remove markdown bold/italic
+            clean = re.sub(r"\*+|`", "", line).strip()
+            # Skip lines that look like URLs or session IDs
+            if "http" in clean or len(clean) < 4:
+                continue
+            # Take first 40 chars as a stable fragment
+            fragment = clean[:40].strip()
+            if fragment:
+                phrases.append(fragment)
+                break
+        return phrases
+
+    def _probe(query: str) -> Optional[Dict[str, Any]]:
+        try:
+            r = httpx.post(endpoint, json={"query": query}, timeout=30.0)
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            return None
+
+    def _write_test(name: str, query: str, data: Dict[str, Any]) -> bool:
+        output = data.get("output", "")
+        tool_calls = data.get("tool_calls", [])
+        tools = [tc["name"] for tc in tool_calls if isinstance(tc, dict)]
+        phrases = _stable_phrases(output)
+
+        tools_yaml = ""
+        if tools:
+            tools_list = "\n".join(f"    - {t}" for t in tools)
+            tools_yaml = f"  tools:\n{tools_list}\n"
+
+        contains_yaml = ""
+        if phrases:
+            contains_list = "\n".join(f'      - "{p}"' for p in phrases)
+            contains_yaml = f"    contains:\n{contains_list}\n"
+
+        content = f"""name: "{name}"
+description: "Auto-generated from real agent response"
+
+endpoint: {endpoint}
+adapter: http
+
+input:
+  query: "{query}"
+
+expected:
+{tools_yaml}  output:
+{contains_yaml}    not_contains:
+      - "error"
+      - "Error"
+
+thresholds:
+  min_score: 60
+  max_latency: 30000
+"""
+        safe_name = re.sub(r"[^a-z0-9-]", "-", name.lower())[:40]
+        path = tests_dir / f"{safe_name}.yaml"
+        path.write_text(content)
+        return True
+
+    tests_dir.mkdir(parents=True, exist_ok=True)
+
+    # Step 1 — capability probe
+    console.print("[dim]  Sending capability probe...[/dim]")
+    cap_data = _probe("Hello, what can you help me with?")
+    if not cap_data:
+        return 0
+
+    generated = 0
+
+    # Write capability test
+    if _write_test("what-can-you-do", "Hello, what can you help me with?", cap_data):
+        generated += 1
+
+    # Step 2 — extract examples from capability response and probe them
+    examples = _extract_example_queries(cap_data.get("output", ""))
+    for i, query in enumerate(examples[:2]):
+        console.print(f"[dim]  Probing: {query[:50]}...[/dim]")
+        data = _probe(query)
+        if data:
+            name = f"test-{i + 2}"
+            if _write_test(name, query, data):
+                generated += 1
+
+    return generated
+
+
+def _write_blank_template(tests_dir: Path, endpoint: str) -> None:
+    """Write a minimal blank test template when auto-gen is not possible."""
+    tests_dir.mkdir(parents=True, exist_ok=True)
+    path = tests_dir / "my-first-test.yaml"
+    if not path.exists():
+        path.write_text(f"""name: "my-first-test"
+description: "Test that my agent responds correctly"
+
+endpoint: {endpoint}
+adapter: http
+
+input:
+  query: "Hello, what can you help me with?"
+
+expected:
+  output:
+    contains:
+      - ""   # Add a word or phrase you expect in the response
+    not_contains:
+      - "error"
+
+thresholds:
+  min_score: 70
+  max_latency: 10000
+""")
+        console.print("[green]✅ Created tests/test-cases/my-first-test.yaml[/green]")
+        console.print("[dim]   Edit the query to match what your agent actually does[/dim]")
+
+
 def _detect_model() -> Optional[str]:
     """Infer model from environment variables."""
     env = os.environ
@@ -394,36 +538,20 @@ model:
     else:
         console.print("\n[yellow]⚠️  .evalview/config.yaml already exists[/yellow]")
 
-    # Create a blank template test case
-    example_path = base_path / "tests" / "test-cases" / "my-first-test.yaml"
-    if not example_path.exists():
-        example_content = f"""# Replace this with a real query your agent can answer
-name: "my-first-test"
-description: "Test that my agent responds correctly"
-
-# Point this at your running agent
-endpoint: {endpoint}
-adapter: http
-
-input:
-  query: "Hello, what can you help me with?"
-
-expected:
-  output:
-    contains:
-      - ""   # Add a word or phrase you expect in the response
-    not_contains:
-      - "error"
-
-thresholds:
-  min_score: 70
-  max_latency: 10000
-"""
-        example_path.write_text(example_content)
-        console.print(f"[green]✅ Created tests/test-cases/my-first-test.yaml[/green]")
-        console.print(f"[dim]   Edit it to match what your agent actually does[/dim]")
+    # Auto-generate test cases by probing the agent
+    tests_dir = base_path / "tests" / "test-cases"
+    if detected_endpoint:
+        console.print("\n[cyan]Generating test cases from your agent...[/cyan]")
+        n = _autogen_tests(endpoint, tests_dir)
+        if n > 0:
+            console.print(f"[green]✅ Generated {n} test case(s) in tests/test-cases/[/green]")
+            console.print("[dim]   Review and edit them, then run evalview snapshot[/dim]")
+        else:
+            console.print("[yellow]⚠️  Could not reach agent to auto-generate tests.[/yellow]")
+            console.print("[dim]   Creating blank template instead.[/dim]")
+            _write_blank_template(tests_dir, endpoint)
     else:
-        console.print("[yellow]⚠️  tests/test-cases/my-first-test.yaml already exists[/yellow]")
+        _write_blank_template(tests_dir, endpoint)
 
     # Create demo agent directory and files
     demo_agent_dir = base_path / "demo-agent"
