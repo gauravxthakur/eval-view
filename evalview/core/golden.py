@@ -236,6 +236,20 @@ class GoldenStore:
 
         return variants
 
+    def save_golden_from_dict(self, test_name: str, data: dict) -> None:
+        """Restore a golden baseline from a dict (e.g., downloaded from cloud).
+
+        Args:
+            test_name: Name of the test
+            data: Golden trace data as a dict
+        """
+        self.golden_dir.mkdir(parents=True, exist_ok=True)
+        golden = GoldenTrace.model_validate(data)
+        path = self._get_golden_path(test_name, None)
+        with open(path, "w") as f:
+            f.write(golden.model_dump_json(indent=2))
+        logger.info(f"Restored golden from cloud: {path}")
+
     def count_variants(self, test_name: str) -> int:
         """Count how many variants exist for a test.
 

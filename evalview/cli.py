@@ -6605,14 +6605,20 @@ def _save_snapshot_results(
     # Save passing results as golden
     console.print()
     saved_count = 0
+    saved_names = []
     for result in passing:
         try:
             store.save_golden(result, notes=notes, variant_name=variant)
             variant_label = f" (variant: {variant})" if variant else ""
             console.print(f"[green]✓ Snapshotted:[/green] {result.test_case}{variant_label}")
             saved_count += 1
+            saved_names.append(result.test_case)
         except Exception as e:
             console.print(f"[red]❌ Failed to save {result.test_case}: {e}[/red]")
+
+    # Silent cloud push — never blocks or fails the snapshot
+    if saved_names:
+        _cloud_push(saved_names)
 
     return saved_count
 
@@ -7028,6 +7034,9 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
         days_since = state_store.days_since_last_check()
         if days_since and days_since >= 7:
             Celebrations.welcome_back(days_since)
+
+    # Pull any missing goldens from cloud before checking locally
+    _cloud_pull(store)
 
     # Verify snapshots exist
     goldens = store.list_golden()
@@ -8341,6 +8350,196 @@ def gym(suite: str, endpoint: str, list_only: bool):
 
     if failed > 0 or errors > 0:
         sys.exit(1)
+
+
+# ============================================================================
+# Cloud sync — login / logout / whoami
+# ============================================================================
+
+
+@main.command("login")
+@track_command("login")
+def login() -> None:
+    """Connect to EvalView Cloud. Baselines sync automatically after login."""
+    import webbrowser
+    import threading
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    from urllib.parse import urlparse, parse_qs
+    from evalview.cloud.auth import CloudAuth
+    from evalview.cloud.client import CloudClient
+
+    auth = CloudAuth()
+
+    if auth.is_logged_in():
+        email = auth.get_email()
+        console.print(f"[green]Already logged in as {email}[/green]")
+        console.print("[dim]Run evalview logout first to switch accounts.[/dim]")
+        return
+
+    # Find a free port in 8000-8100
+    import socket
+    port = 8000
+    for candidate in range(8000, 8101):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            if sock.connect_ex(("127.0.0.1", candidate)) != 0:
+                port = candidate
+                break
+
+    redirect_uri = f"http://127.0.0.1:{port}/callback"
+    auth_url = CloudClient.build_oauth_url(redirect_uri)
+
+    # Shared state between handler and main thread
+    callback_result: Dict[str, Optional[str]] = {"code": None, "error": None}
+    server_ready = threading.Event()
+
+    class _CallbackHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            if "code" in params:
+                callback_result["code"] = params["code"][0]
+            elif "error" in params:
+                callback_result["error"] = params.get("error_description", ["Unknown error"])[0]
+            # Send a simple success page
+            body = b"<html><body><h2>Login successful! You can close this tab.</h2></body></html>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass  # Suppress server access logs
+
+    httpd = HTTPServer(("127.0.0.1", port), _CallbackHandler)
+    httpd.timeout = 300  # 5 minutes
+
+    console.print(f"\n[cyan]Opening GitHub in your browser...[/cyan]")
+    console.print(f"[dim]If the browser doesn't open, visit:[/dim]")
+    console.print(f"[dim]{auth_url}[/dim]\n")
+
+    webbrowser.open(auth_url)
+    console.print("[dim]Waiting for GitHub authorization (timeout: 5 min)...[/dim]")
+
+    httpd.handle_request()  # Blocks until one request handled
+    httpd.server_close()
+
+    if callback_result["error"]:
+        console.print(f"[red]Login failed: {callback_result['error']}[/red]")
+        return
+
+    code = callback_result["code"]
+    if not code:
+        console.print("[red]Login failed: no code received from GitHub.[/red]")
+        return
+
+    # Exchange code for session
+    session = asyncio.run(CloudClient.exchange_code(code))
+    if not session:
+        console.print("[red]Login failed: could not exchange code for session.[/red]")
+        console.print("[dim]Try running evalview login again.[/dim]")
+        return
+
+    access_token = session.get("access_token", "")
+    refresh_token = session.get("refresh_token", "")
+    user = session.get("user", {})
+    user_id = user.get("id", "")
+    email = user.get("email", "")
+
+    if not access_token or not user_id:
+        console.print("[red]Login failed: incomplete session data.[/red]")
+        return
+
+    auth.save(access_token, refresh_token, user_id, email)
+    console.print(f"\n[green]✓ Logged in as {email}[/green]")
+    console.print("[dim]Baselines will sync to cloud automatically on snapshot/check.[/dim]\n")
+
+
+@main.command("logout")
+@track_command("logout")
+def logout() -> None:
+    """Disconnect from EvalView Cloud."""
+    from evalview.cloud.auth import CloudAuth
+
+    auth = CloudAuth()
+    if not auth.is_logged_in():
+        console.print("[dim]Not logged in.[/dim]")
+        return
+
+    email = auth.get_email()
+    auth.clear()
+    console.print(f"[green]✓ Logged out[/green] (was {email})")
+    console.print("[dim]Your local baselines are untouched.[/dim]")
+
+
+@main.command("whoami")
+def whoami() -> None:
+    """Show current cloud login status."""
+    from evalview.cloud.auth import CloudAuth
+
+    auth = CloudAuth()
+    if auth.is_logged_in():
+        console.print(f"[green]Logged in[/green] as {auth.get_email()}")
+        console.print(f"[dim]User ID: {auth.get_user_id()}[/dim]")
+    else:
+        console.print("[dim]Not logged in. Run [bold]evalview login[/bold] to connect.[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers for silent cloud sync
+# ---------------------------------------------------------------------------
+
+
+def _cloud_push(saved_test_names: List[str]) -> None:
+    """Upload golden baselines for the given tests. Silently skips on error."""
+    from evalview.cloud.auth import CloudAuth
+    from evalview.cloud.client import CloudClient, CloudSyncError
+    from evalview.core.golden import GoldenStore
+
+    auth = CloudAuth()
+    if not auth.is_logged_in():
+        return
+
+    store = GoldenStore()
+
+    async def _push() -> None:
+        client = CloudClient(auth.get_access_token() or "")
+        user_id = auth.get_user_id() or ""
+        for test_name in saved_test_names:
+            golden = store.load_golden(test_name)
+            if golden:
+                await client.upload_golden(user_id, test_name, golden.model_dump())
+
+    try:
+        asyncio.run(_push())
+        console.print("[dim]☁  Synced to cloud[/dim]")
+    except Exception:
+        console.print("[dim]⚠  Cloud sync skipped (offline?)[/dim]")
+
+
+def _cloud_pull(store: "GoldenStore") -> None:
+    """Pull missing golden baselines from cloud. Silently skips on error."""
+    from evalview.cloud.auth import CloudAuth
+    from evalview.cloud.client import CloudClient, CloudSyncError
+
+    auth = CloudAuth()
+    if not auth.is_logged_in():
+        return
+
+    async def _pull() -> None:
+        client = CloudClient(auth.get_access_token() or "")
+        user_id = auth.get_user_id() or ""
+        remote_names = await client.list_goldens(user_id)
+        for test_name in remote_names:
+            if not store.has_golden(test_name):
+                data = await client.download_golden(user_id, test_name)
+                if data:
+                    store.save_golden_from_dict(test_name, data)
+
+    try:
+        asyncio.run(_pull())
+    except Exception:
+        pass  # Silently skip — local goldens still work
 
 
 if __name__ == "__main__":
