@@ -197,7 +197,7 @@ class TestTestCaseLoaderFromDirectory:
         assert test_cases == []
 
     def test_load_from_directory_with_subdirectories(self, tmp_path):
-        """Test that subdirectories are not searched (only top-level files)."""
+        """Test that subdirectories are searched recursively."""
         test_dir = tmp_path / "test_cases"
         test_dir.mkdir()
         sub_dir = test_dir / "subdir"
@@ -231,9 +231,10 @@ thresholds:
 
         test_cases = TestCaseLoader.load_from_directory(test_dir)
 
-        # Should only load top-level file (glob pattern *.yaml doesn't recurse)
-        assert len(test_cases) == 1
-        assert test_cases[0].name == "top_level"
+        # Should load both top-level and nested files (rglob recurses)
+        assert len(test_cases) == 2
+        names = {tc.name for tc in test_cases}
+        assert names == {"top_level", "nested"}
 
     def test_load_from_directory_custom_pattern(self, tmp_path):
         """Test loading with a custom file pattern."""
