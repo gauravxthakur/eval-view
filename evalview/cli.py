@@ -390,6 +390,7 @@ def _autogen_tests(endpoint: str, tests_dir: Path) -> int:
 
         content = f"""name: "{name}"
 description: "Auto-generated from real agent response"
+generated: true
 
 endpoint: {endpoint}
 adapter: http
@@ -2359,37 +2360,34 @@ async def _run_async(
         if verbose:
             console.print(f"[dim]🎯 Filtered to {len(test_cases)}/{original_count} tests with difficulty: {difficulty_filter}[/dim]\n")
 
-    # ── Test quality gate ──────────────────────────────────────────────────
-    # Tests below the quality threshold are skipped — their scores would
-    # reflect bad test design, not agent performance.
+    # ── Test quality check ─────────────────────────────────────────────────
+    # Auto-generated tests: skip if quality is too low — bad queries produce
+    # misleading scores that reflect the test, not the agent.
+    # User-written tests: always run, but warn so they can improve the test.
     from evalview.core.test_quality import score_test_quality, QUALITY_THRESHOLD
-    low_quality: List[Tuple[str, int, List[str]]] = []  # (name, score, issues)
-    qualified: List[Any] = []
+    skipped: List[str] = []
+    qualified_cases: List[Any] = []
     for tc in test_cases:
         q_score, q_issues = score_test_quality(tc)
         if q_score < QUALITY_THRESHOLD:
-            low_quality.append((tc.name, q_score, q_issues))
+            if tc.generated:
+                skipped.append(tc.name)
+                console.print(f"[yellow]⚠  {tc.name} skipped [generated, quality: {q_score}/100][/yellow]")
+                for issue in q_issues:
+                    console.print(f"[dim]     • {issue}[/dim]")
+            else:
+                console.print(f"[yellow]⚠  {tc.name} [quality: {q_score}/100] — score may reflect test issues, not agent issues[/yellow]")
+                for issue in q_issues:
+                    console.print(f"[dim]     • {issue}[/dim]")
+                qualified_cases.append(tc)
         else:
-            qualified.append(tc)
+            qualified_cases.append(tc)
 
-    if low_quality:
-        console.print(
-            f"\n[bold yellow]⚠  Skipped {len(low_quality)} low-quality "
-            f"test{'s' if len(low_quality) > 1 else ''} "
-            f"(quality < {QUALITY_THRESHOLD}/100):[/bold yellow]"
-        )
-        for name, q_score, q_issues in low_quality:
-            console.print(f"[yellow]   {name}  [{q_score}/100][/yellow]")
-            for issue in q_issues:
-                console.print(f"[dim]     • {issue}[/dim]")
-        console.print(
-            "[dim]   Fix the issues above, then re-run. "
-            "Skipped tests don't affect your agent's score.[/dim]\n"
-        )
-
-    test_cases = qualified
+    if skipped:
+        console.print(f"[dim]   {len(skipped)} auto-generated test(s) skipped. Fix and re-run, or rewrite manually.[/dim]\n")
+    test_cases = qualified_cases
     if not test_cases:
-        console.print("[yellow]⚠️  All tests were skipped due to low quality. Fix your test cases and re-run.[/yellow]")
+        console.print("[yellow]⚠️  No runnable tests. Fix test quality issues above and re-run.[/yellow]")
         return
 
     # Inject variance config for --runs flag (enables statistical/pass@k mode)
