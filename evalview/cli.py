@@ -8843,8 +8843,23 @@ def _cloud_pull(store: "GoldenStore") -> None:
 
 
 def _escape_yaml_str(s: str) -> str:
-    """Escape a string for YAML double-quoted context."""
-    return s.replace("\\", "\\\\").replace('"', '\\"')
+    """Escape *s* so it is safe inside a YAML double-quoted scalar.
+
+    YAML double-quoted scalars recognise the same escape sequences as JSON:
+    backslash, double-quote, and the C0 control characters (\\n, \\r, \\t …).
+    We must escape ALL of them or the written file may be unparseable / silently
+    corrupt (e.g. a bare newline inside a quoted scalar breaks the YAML line
+    structure entirely).
+
+    Order matters: backslash must be replaced first to avoid double-escaping.
+    """
+    return (
+        s.replace("\\", "\\\\")
+         .replace('"', '\\"')
+         .replace("\n", "\\n")
+         .replace("\r", "\\r")
+         .replace("\t", "\\t")
+    )
 
 
 def _extract_keywords_from_output(output: str, query: str) -> List[str]:
@@ -8872,7 +8887,7 @@ def _extract_keywords_from_output(output: str, query: str) -> List[str]:
     # Fallback: any long word from the output
     if not keywords:
         words = re.findall(r"\b[a-zA-Z]{5,}\b", output)
-        seen: set = set()
+        seen: set[str] = set()
         for w in words[:15]:
             if len(keywords) >= 2:
                 break
@@ -8987,10 +9002,12 @@ def capture(agent: Optional[str], port: int, output_dir: str) -> None:
     """
     import http.server
     import socketserver
+    import signal
     import threading as _threading
     import json as _json
+    from urllib.parse import urlparse
 
-    # ── Resolve agent URL ─────────────────────────────────────────────────────
+    # ── Validate & resolve agent URL ──────────────────────────────────────────
     if not agent:
         detected = _detect_agent_endpoint()
         if detected:
@@ -9001,99 +9018,210 @@ def capture(agent: Optional[str], port: int, output_dir: str) -> None:
                 "Agent URL", default="http://localhost:8000/invoke"
             )
 
-    agent_url: str = agent  # immutable in closure
+    _parsed = urlparse(agent)
+    if not _parsed.scheme or not _parsed.netloc:
+        console.print(
+            f"[red]Error: Invalid agent URL — {agent!r}[/red]\n"
+            "[dim]Must include scheme and host, e.g. http://localhost:8000/invoke[/dim]"
+        )
+        raise SystemExit(1)
+
+    agent_url: str = agent  # immutable string — safe to close over
 
     # ── Shared state ──────────────────────────────────────────────────────────
+    # `captures` and `lock` are closed over by both _ProxyHandler and the
+    # main-thread display loop.  All mutations go through `lock`.
     captures: List[Dict[str, Any]] = []
     lock = _threading.Lock()
 
+    # Hop-by-hop headers must not be forwarded by a proxy (RFC 7230 §6.1).
+    _HOP_BY_HOP = frozenset({
+        "connection", "keep-alive", "proxy-authenticate",
+        "proxy-authorization", "te", "trailers",
+        "transfer-encoding", "upgrade",
+    })
+
     # ── Proxy handler ─────────────────────────────────────────────────────────
     class _ProxyHandler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
-            pass  # suppress default access log noise
+        """Transparent forwarding proxy that captures every POST to agent_url."""
 
-        def _forward(self, body: bytes) -> None:
-            query = ""
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            pass  # Silence the default per-request log lines.
+
+        # ------------------------------------------------------------------
+        # Internal helpers
+        # ------------------------------------------------------------------
+
+        def _read_body(self) -> Optional[bytes]:
+            """Read request body using Content-Length header.
+
+            Returns None and sends a 400 response if the header is missing,
+            non-numeric, or negative.
+            """
+            raw = self.headers.get("Content-Length", "0")
+            try:
+                length = int(raw)
+            except ValueError:
+                self.send_error(400, f"Invalid Content-Length: {raw!r}")
+                return None
+            if length < 0:
+                self.send_error(400, "Content-Length must not be negative")
+                return None
+            return self.rfile.read(length) if length else b""
+
+        def _extract_query(self, body: bytes) -> str:
+            """Parse *body* and extract the user query string.
+
+            Supports two common agent payload shapes:
+            - ``{"query": "..."}`` (EvalView HTTPAdapter format)
+            - ``{"messages": [{"role": "user", "content": "..."}]}`` (OpenAI format)
+
+            Returns an empty string if the body is not JSON or has neither field.
+            """
+            if not body:
+                return ""
             try:
                 data = _json.loads(body)
-                if isinstance(data, dict):
-                    if "query" in data:
-                        query = str(data["query"])
-                    elif "messages" in data:
-                        msgs = data["messages"]
-                        if isinstance(msgs, list):
-                            user_msgs = [
-                                m for m in msgs
-                                if isinstance(m, dict) and m.get("role") == "user"
-                            ]
-                            if user_msgs:
-                                query = str(user_msgs[-1].get("content", ""))
+            except _json.JSONDecodeError:
+                return ""
+            if not isinstance(data, dict):
+                return ""
+            if "query" in data:
+                return str(data["query"])
+            if "messages" in data:
+                msgs = data["messages"]
+                if isinstance(msgs, list):
+                    user_msgs = [
+                        m for m in msgs
+                        if isinstance(m, dict) and m.get("role") == "user"
+                    ]
+                    if user_msgs:
+                        return str(user_msgs[-1].get("content", ""))
+            return ""
+
+        def _extract_agent_response(
+            self, body: bytes
+        ) -> "tuple[str, List[str]]":
+            """Parse the agent's JSON response into (output_text, tool_names).
+
+            Both fields default to empty/[] on any parse error so a bad agent
+            response never prevents the proxy from returning to the client.
+            """
+            output = ""
+            tools: List[str] = []
+            if not body:
+                return output, tools
+            try:
+                data = _json.loads(body)
+                output = str(data.get("output", ""))
+                raw_tools = data.get("tool_calls", [])
+                if isinstance(raw_tools, list):
+                    for t in raw_tools:
+                        if isinstance(t, dict):
+                            tool_name = t.get("tool") or t.get("name") or ""
+                            if tool_name:
+                                tools.append(str(tool_name))
             except Exception:
                 pass
+            return output, tools
+
+        def _forward_headers(self) -> Dict[str, str]:
+            """Build the header dict to forward to the upstream agent.
+
+            Strips hop-by-hop headers (which proxies must not forward) and
+            the original Host header (replaced by httpx with the correct value
+            for agent_url).
+            """
+            forwarded: Dict[str, str] = {}
+            for key, value in self.headers.items():
+                if key.lower() not in _HOP_BY_HOP and key.lower() != "host":
+                    forwarded[key] = value
+            # Ensure content type is set; some clients omit it.
+            forwarded.setdefault("Content-Type", "application/json")
+            return forwarded
+
+        # ------------------------------------------------------------------
+        # HTTP verbs
+        # ------------------------------------------------------------------
+
+        def do_POST(self) -> None:
+            body = self._read_body()
+            if body is None:
+                return  # 400 already sent by _read_body
+
+            query = self._extract_query(body)
 
             try:
                 resp = httpx.post(
                     agent_url,
                     content=body,
-                    headers={"Content-Type": "application/json"},
+                    headers=self._forward_headers(),
                     timeout=60.0,
                 )
                 resp_body = resp.content
                 status_code = resp.status_code
-
-                output = ""
-                tools: List[str] = []
-                try:
-                    resp_data = _json.loads(resp_body)
-                    output = str(resp_data.get("output", ""))
-                    raw_tools = resp_data.get("tool_calls", [])
-                    if isinstance(raw_tools, list):
-                        for t in raw_tools:
-                            if isinstance(t, dict):
-                                name = t.get("tool") or t.get("name") or ""
-                                if name:
-                                    tools.append(str(name))
-                except Exception:
-                    pass
-
-                if query.strip():
-                    with lock:
-                        captures.append({
-                            "query": query,
-                            "output": output,
-                            "tools": tools,
-                            "idx": len(captures) + 1,
-                        })
-
-                self.send_response(status_code)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(resp_body)
-
             except Exception as exc:
                 err = _json.dumps({"error": str(exc)}).encode()
                 self.send_response(502)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(err)
+                return
 
-        def do_POST(self) -> None:
-            length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(length) if length else b""
-            self._forward(body)
+            output, tools = self._extract_agent_response(resp_body)
+
+            if query.strip():
+                with lock:
+                    captures.append({
+                        "query": query,
+                        "output": output,
+                        "tools": tools,
+                        "idx": len(captures) + 1,
+                    })
+
+            # Forward the real status code and all non-hop-by-hop response
+            # headers so the client sees a transparent proxy, not a wrapper.
+            self.send_response(status_code)
+            for key, value in resp.headers.items():
+                if key.lower() not in _HOP_BY_HOP | {"content-length"}:
+                    self.send_header(key, value)
+            # Recalculate Content-Length because we've read the full body.
+            self.send_header("Content-Length", str(len(resp_body)))
+            self.end_headers()
+            self.wfile.write(resp_body)
 
         def do_GET(self) -> None:
-            # Health / ready probe
+            """Health / readiness probe so clients can verify the proxy is up."""
+            body = b'{"status":"proxy-active"}'
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(b'{"status":"proxy-active"}')
+            self.wfile.write(body)
 
     # ── Start proxy server ────────────────────────────────────────────────────
-    socketserver.TCPServer.allow_reuse_address = True
-    server = socketserver.ThreadingTCPServer(("", port), _ProxyHandler)
+    # Subclass to avoid mutating the global TCPServer.allow_reuse_address.
+    class _ReuseAddrServer(socketserver.ThreadingTCPServer):
+        allow_reuse_address = True
+
+    try:
+        server = _ReuseAddrServer(("", port), _ProxyHandler)
+    except OSError as exc:
+        console.print(
+            f"[red]Error: Could not bind to port {port}[/red]\n"
+            f"[dim]{exc}[/dim]\n"
+            f"[dim]Try a different port: evalview capture --port 8092[/dim]"
+        )
+        raise SystemExit(1)
+
     server_thread = _threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
+
+    # Ensure clean shutdown on SIGTERM (container/systemd) as well as Ctrl+C.
+    def _handle_shutdown(signum: int, frame: Any) -> None:
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, _handle_shutdown)
 
     console.print()
     console.print(Panel(
@@ -9112,12 +9240,16 @@ def capture(agent: Optional[str], port: int, output_dir: str) -> None:
     from rich.live import Live
 
     def _build_table() -> Table:
+        # Take a snapshot of captures under the lock so the main thread
+        # holds it for as short a time as possible.
         with lock:
-            n = len(captures)
             snap = list(captures)
 
         t = Table(
-            title=f"Captured Interactions — {n} so far  [dim](Ctrl+C to save & exit)[/dim]",
+            title=(
+                f"Captured Interactions — {len(snap)} so far  "
+                "[dim](Ctrl+C to save & exit)[/dim]"
+            ),
             box=None,
             show_header=True,
             header_style="bold",
@@ -9130,11 +9262,11 @@ def capture(agent: Optional[str], port: int, output_dir: str) -> None:
         for cap in snap:
             q = cap["query"]
             o = cap["output"]
-            tl = ", ".join(cap["tools"]) if cap["tools"] else "[dim]—[/dim]"
+            tool_str = ", ".join(cap["tools"]) if cap["tools"] else "[dim]—[/dim]"
             t.add_row(
                 str(cap["idx"]),
                 (q[:48] + "…") if len(q) > 48 else q,
-                tl,
+                tool_str,
                 (o[:38] + "…") if len(o) > 38 else o,
             )
         return t
