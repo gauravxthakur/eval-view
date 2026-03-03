@@ -475,6 +475,13 @@ class ConsoleReporter:
                     rationale = output_eval.rationale[:400] + "..." if len(output_eval.rationale) > 400 else output_eval.rationale
                     self.console.print(f"[dim]  {rationale}[/dim]")
 
+            # Test quality hints — shown when the test itself may be the problem
+            quality_hints = self._test_quality_hints(result)
+            if quality_hints:
+                self.console.print("\n[bold yellow]⚠ Test Quality[/bold yellow]")
+                for hint in quality_hints:
+                    self.console.print(f"[yellow]  💡 {hint}[/yellow]")
+
             # Show step-by-step flow
             if result.trace.steps:
                 self.console.print()
@@ -482,6 +489,51 @@ class ConsoleReporter:
                     result.trace.steps,
                     title=f"Execution Flow ({len(result.trace.steps)} steps)",
                 )
+
+    @staticmethod
+    def _test_quality_hints(result: "EvaluationResult") -> List[str]:
+        """Return suggestions when the test itself looks like the problem, not the agent."""
+        hints: List[str] = []
+        query = (result.input_query or "").strip()
+        output_eval = result.evaluations.output_quality
+        tool_eval = result.evaluations.tool_calls
+
+        # 1. Truncated / incomplete query
+        _FRAGMENT_ENDINGS = (
+            " for", " the", " a", " an", " of", " in", " on",
+            " to", " with", " and", " or",
+        )
+        if len(query) < 15 or len(query.split()) < 3:
+            hints.append(
+                "Query is very short — add a specific object or intent "
+                "(e.g. \"Show me LangSmith pain points\" not \"Search for\")"
+            )
+        elif query.lower().endswith(_FRAGMENT_ENDINGS):
+            hints.append(
+                f"Query looks truncated (ends with \"{query.split()[-1]}\") — "
+                "complete the search term in your test YAML"
+            )
+
+        # 2. Low output quality but agent called the right tools — test expectations are stale
+        tool_score = tool_eval.score if tool_eval else 0
+        output_score = output_eval.score if output_eval else 100
+        if tool_score >= 80 and output_score < 50:
+            hints.append(
+                "Agent used the right tools but output score is low — "
+                "your expected.output.contains strings may be stale or too specific. "
+                "Run evalview snapshot to update the baseline."
+            )
+
+        # 3. Empty string in contains — always passes, hides real failures
+        if output_eval and output_eval.contains_checks:
+            checked = getattr(output_eval.contains_checks, "checked", [])
+            if any(s == "" for s in checked):
+                hints.append(
+                    "expected.output.contains has an empty string (\"\") — "
+                    "it always passes. Replace with a real phrase your agent outputs."
+                )
+
+        return hints
 
     def print_detailed(self, result: EvaluationResult) -> None:
         """
