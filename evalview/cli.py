@@ -1742,6 +1742,12 @@ model:
     default=False,
     help="Cache LLM judge responses so identical outputs are not re-evaluated. Saves API costs in statistical mode (--runs).",
 )
+@click.option(
+    "--no-open",
+    is_flag=True,
+    default=False,
+    help="Do not auto-open the HTML report in the browser after the run. Implied when CI=true.",
+)
 @track_command("run", lambda **kw: {"adapter": kw.get("adapter") or "auto", "has_path": bool(kw.get("path"))})
 def run(
     path: Optional[str],
@@ -1778,6 +1784,7 @@ def run(
     save_golden: bool,
     no_judge: bool,
     judge_cache: bool,
+    no_open: bool,
 ):
     """Run test cases against the agent.
 
@@ -1805,6 +1812,7 @@ def run(
         runs=runs, pass_rate=pass_rate, difficulty_filter=difficulty,
         contracts=contracts, save_golden=save_golden,
         no_judge=no_judge, judge_cache=judge_cache,
+        no_open=no_open,
     ))
 
 
@@ -1864,6 +1872,7 @@ async def _run_async(
     save_golden: bool = False,
     no_judge: bool = False,
     judge_cache: bool = False,
+    no_open: bool = False,
 ):
     """Async implementation of run command."""
     import fnmatch
@@ -3332,10 +3341,26 @@ async def _run_async(
         console.print("[dim]   View trends: evalview trends[/dim]")
         console.print("[dim]   Set baseline: evalview baseline set[/dim]\n")
 
-    # Tip about HTML report (only if not already generated)
-    if not watch and not html_report:
-        console.print("[dim]💡 Tip: Generate an interactive HTML report:[/dim]")
-        console.print("[dim]   evalview run --html-report report.html[/dim]\n")
+    # Auto-generate and open visual HTML report after every run.
+    # Skip in CI environments or when the user explicitly opts out.
+    if not watch and results:
+        in_ci = bool(os.environ.get("CI"))
+        should_open = not no_open and not in_ci
+        try:
+            from evalview.visualization import generate_visual_report
+            report_path = generate_visual_report(
+                results,
+                diffs=[d for _, d in diffs_found] if diffs_found else None,
+                auto_open=should_open,
+                title="EvalView Run Report",
+            )
+            if should_open:
+                console.print(f"\n[bold]📊 Report opened in browser[/bold] [dim]({report_path})[/dim]\n")
+            else:
+                console.print(f"\n[dim]📊 Report saved: {report_path}[/dim]\n")
+        except Exception:
+            # Never block the run output on report generation
+            pass
 
     # Quick tips (compact, one-line each)
     if not watch and results:
@@ -3449,8 +3474,6 @@ async def _run_async(
                 pass
         elif failed > 0:
             console.print(f"[bold red]Regression detected in {failed} test{'s' if failed != 1 else ''}.[/bold red] Review changes before shipping.\n")
-        if passed > 0 or failed > 0:
-            console.print("[dim]⭐ EvalView helped? Star us: [link=https://github.com/hidai25/eval-view]github.com/hidai25/eval-view[/link][/dim]\n")
 
     # Track run command telemetry (non-blocking, in background)
     try:
@@ -3501,6 +3524,7 @@ async def _run_async(
                 retry_delay=retry_delay,
                 watch=False,  # Prevent infinite nesting
                 html_report=html_report,
+                no_open=True,  # Don't open browser on every file-change re-run
             )
 
         watcher = TestWatcher(
