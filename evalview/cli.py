@@ -3358,9 +3358,8 @@ async def _run_async(
                 console.print(f"\n[bold]📊 Report opened in browser[/bold] [dim]({report_path})[/dim]\n")
             else:
                 console.print(f"\n[dim]📊 Report saved: {report_path}[/dim]\n")
-        except Exception:
-            # Never block the run output on report generation
-            pass
+        except Exception as _report_err:
+            console.print(f"[dim]⚠ Could not generate HTML report: {_report_err}[/dim]")
 
     # Quick tips (compact, one-line each)
     if not watch and results:
@@ -8824,8 +8823,9 @@ _HOOK_SCRIPT_TEMPLATE = """\
 {begin}
 # Installed by: evalview install-hooks
 # Do not edit this block — use 'evalview uninstall-hooks' to remove it.
-EVALVIEW_GOLDEN_DIR="$(git rev-parse --show-toplevel)/.evalview/golden"
-if ! ls "$EVALVIEW_GOLDEN_DIR"/*.golden.json 1>/dev/null 2>&1; then
+EVALVIEW_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {{ echo "[evalview] Not inside a git repo — skipping."; exit 0; }}
+EVALVIEW_GOLDEN_DIR="$EVALVIEW_ROOT/.evalview/golden"
+if ! find "$EVALVIEW_GOLDEN_DIR" -maxdepth 1 -name "*.golden.json" 2>/dev/null | grep -q .; then
     echo "[evalview] No baseline found — skipping regression check."
     exit 0
 fi
@@ -8858,6 +8858,19 @@ def _find_git_hooks_dir(git_dir: Optional[str]) -> Optional[Path]:
         dot_git = candidate_dir / ".git"
         if dot_git.is_dir():
             return dot_git / "hooks"
+        # git worktrees store .git as a file pointing to the real git dir
+        if dot_git.is_file():
+            for line in dot_git.read_text(encoding="utf-8").splitlines():
+                if line.startswith("gitdir:"):
+                    real_git = Path(line[len("gitdir:"):].strip())
+                    if not real_git.is_absolute():
+                        real_git = candidate_dir / real_git
+                    # Worktrees share hooks with the main repo
+                    main_git = real_git
+                    while (main_git / "commondir").exists():
+                        common = (main_git / "commondir").read_text(encoding="utf-8").strip()
+                        main_git = (main_git / common).resolve()
+                    return main_git / "hooks"
     return None
 
 
@@ -9003,13 +9016,13 @@ def uninstall_hooks(hook_name: str, git_dir: Optional[str]) -> None:
     out: List[str] = []
     inside_block = False
     for line in lines:
-        if line.rstrip("\n") == _HOOK_BEGIN:
+        if line.rstrip("\r\n") == _HOOK_BEGIN:
             inside_block = True
             # Also remove the trailing blank line we may have added above the block
             while out and out[-1].strip() == "":
                 out.pop()
             continue
-        if line.rstrip("\n") == _HOOK_END:
+        if line.rstrip("\r\n") == _HOOK_END:
             inside_block = False
             continue
         if not inside_block:
@@ -9026,7 +9039,10 @@ def uninstall_hooks(hook_name: str, git_dir: Optional[str]) -> None:
             "(hook file was otherwise empty and has been deleted).[/green]"
         )
     else:
+        import stat as _stat
+        mode = hook_path.stat().st_mode
         hook_path.write_text(stripped + "\n", encoding="utf-8")
+        hook_path.chmod(mode)  # restore permissions (write() may reset via umask)
         console.print(
             f"[green]✓ Removed evalview block from [bold]{hook_name}[/bold].[/green]"
         )
