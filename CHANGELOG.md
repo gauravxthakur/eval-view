@@ -7,6 +7,148 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-03-05
+
+### Added
+
+#### Multi-Turn Conversation Testing
+- **`turns:` YAML field** — replace `input` with a `turns` list to test stateful, multi-step conversations
+- **`ConversationTurn` model** — each turn has `query`, optional `expected`, and optional `context`
+- **Automatic history injection** — accumulated `conversation_history` is passed in each turn's context so agents can track context across turns
+- **Per-turn `expected` assertions** — tool checks and output assertions scoped to each turn
+- **Merged trace** — all turns' tool calls, costs, and latency are summed into a single `ExecutionTrace` for evaluation
+- **Backward compatibility** — `input` is auto-populated from the first turn so all downstream code works unchanged
+
+#### A/B Endpoint Comparison
+- **`evalview compare` command** — run the same test suite against two endpoints simultaneously
+- **Per-test verdict table** — `improved` / `degraded` / `same` with score delta for each test
+- **Overall verdict panel** — production-ready guidance (promote / caution / investigate)
+- **`--label-v1` / `--label-v2`** — human-readable labels appear in output and report filenames
+- **`--no-judge`** — skip LLM judge for fast, cost-free deterministic comparison
+- **`--no-open`** — suppress auto-opening HTML report (CI-friendly)
+
+#### Cloud Baseline Sync
+- **`evalview login`** — OAuth-based authentication, opens browser for sign-in
+- **`evalview logout`** — clear local credentials
+- **`evalview whoami`** — show currently authenticated user
+- **Silent push after snapshot** — golden baselines automatically sync to cloud after every `evalview snapshot`
+- **Silent pull before check** — remote baselines pulled before every `evalview check` so teammates always compare against the team baseline
+
+#### evalview capture
+- **HTTP proxy recorder** — `evalview capture --agent <url>` starts a proxy on `:8091` that records real agent traffic as test YAML files
+- **Zero-config** — point your app at the proxy, use it normally, Ctrl-C to stop; test files are written automatically
+- **Custom port** — `--port 8092` for non-default proxy ports
+- **Best-practice onboarding** — capture is now the first recommended step for new projects
+
+#### Silent Regression Detection
+- **Model fingerprinting** — captures model version at snapshot time; alerts when provider silently swaps the model behind the same API name
+- **Gradual drift detection** — OLS regression over a 10-check window catches slow similarity decline that single-threshold checks miss
+- **Semantic diff** — `--semantic-diff` uses OpenAI embeddings to score outputs by meaning, not character-level similarity
+
+#### Git Hook Integration
+- **`evalview install-hooks`** — injects `evalview check` into your repo's pre-push (or pre-commit) hook; automatic regression blocking with zero CI config
+- **`evalview uninstall-hooks`** — cleanly removes installed hooks
+
+#### Auto-Open HTML Report
+- Every `evalview run` automatically opens the interactive HTML report in your browser
+- `--no-open` flag suppresses this for CI pipelines
+
+#### evalview init Improvements
+- **Auto-detect agent endpoint** — probes common ports to find your running agent automatically
+- **Auto-generate test cases** — probes the agent with representative queries to create a starter test suite
+- **Context-aware completion panel** — shows detected agent URL, model, and generated test count
+
+#### Test Quality Gating
+- **Quality score per test** — generated tests are scored before execution; low-quality tests are skipped with a warning rather than polluting agent scores
+- **Quality hints** — when tests look like the problem (not the agent), EvalView says so clearly
+
+### Fixed
+- **Mermaid parameter display** — `offset=0, limit=10` now renders correctly (was `offset0 limit10`)
+- **Duplicate banner in demo** — `evalview demo` no longer shows the banner twice
+- **Cloud sync noise** — "Cloud sync skipped (offline?)" suppressed during demo mode
+- **mypy errors** — `TestCase.input` restored as required field using a `mode="before"` validator; fixes 13 call-site errors across 4 files
+- **False REGRESSION on identical output** — judge score variance on identical output no longer triggers a regression
+- **Zero/negative thresholds** — `CostEvaluator` and `LatencyEvaluator` now handle 0 and negative threshold values correctly
+- **Agent endpoint detection** — checks for `output` field in POST response, not just HTTP 200
+
+### Community
+- Pydantic field validation for `TestCase` model (#54 by @illbeurs)
+- Edge test cases for `CostEvaluator` and `LatencyEvaluator` (#55 by @illbeurs)
+- `health_check()` method on `OllamaAdapter` (#57 by @gauravxthakur)
+- `ConsoleReporter` docstrings (#56 by @gauravxthakur)
+
+---
+
+## [0.3.2] - 2026-02-27
+
+### Added
+- **DeepSeek provider** — DeepSeek is now a first-class LLM judge provider alongside OpenAI and Anthropic
+- **Glama MCP registry** — EvalView MCP server listed on Glama (`glama.json` + `Dockerfile`)
+
+### Fixed
+- Custom runner + MCP timeout handling for OAuth-authenticated users
+- Nested Claude auth failure in `claude-code` adapter
+- Graceful LLM fallback when primary provider is unavailable
+
+---
+
+## [0.3.1] - 2026-02-25
+
+### Added
+
+#### Visual Reports
+- **Glassmorphism HTML reports** — interactive reports with Plotly charts, Mermaid sequence diagrams, cost-per-query table, and full query/response in trace view
+- **`evalview inspect`** — open an HTML report from any result file
+- **`generate_visual_report` MCP tool** — generate reports inline from Claude Code
+
+#### Safety & Forensics
+- **`forbidden_tools` safety contracts** — declare tools that must never be called; any violation is an immediate hard-fail (score 0, no partial credit)
+- **HTML trace replay** — step-by-step replay of every LLM call and tool invocation with exact prompt, completion, tokens, and parameters
+
+#### LLM Judge Caching
+- **Judge response cache** — cache LLM judge responses during repeated test runs; ~80% fewer API calls in statistical mode
+- Stored in `.evalview/.judge_cache.db` (SQLite)
+
+#### Skills Testing
+- **15-template pattern library** — `evalview add <pattern>` copies ready-made YAML patterns to your project
+- **Personalized init wizard** — `evalview init --wizard` generates a config and first test tailored to your agent in 3 questions
+- **Provider-agnostic skill tests** — run skill tests against Anthropic, OpenAI, DeepSeek, or any OpenAI-compatible API
+- **OpenClaw adapter** — support for AgentSkills/SKILL.md testing
+- **Security evaluator** — deterministic security checks in skill evaluation
+
+### Fixed
+- Resolved all mypy type errors in `skills/runner.py` and `visualization/generators.py`
+- `--no-judge` flag and fail-fast API key validation on `evalview run`
+- EvalView banner now shown on demo, run, and snapshot commands
+
+---
+
+## [0.3.0] - 2026-02-20
+
+### Added
+
+#### Claude Code MCP Integration
+- **MCP server** — EvalView runs as an MCP server inside Claude Code
+- **Skill testing tools** — `validate_skill`, `generate_skill_tests`, `run_skill_test` available as MCP tools
+- **`create_test` MCP tool** — generate test cases from natural language without writing YAML
+
+#### evalview demo
+- **Live regression demo** — `evalview demo` runs a self-contained ~30-second regression demonstration with no setup required
+- Customer support scenario with intentional regression injection and recovery
+
+#### Agent Discovery
+- **Early unreachable-agent detection** — connectivity check before any test output; clear onboarding guide shown when no agent is found
+- **Agent endpoint shown in run output** — always visible which endpoint is under test
+
+#### Telemetry & Observability
+- Readable event names, person identification, session duration tracking
+- Dev-mode filter to exclude local development runs
+
+### Fixed
+- Tool names shown in diff output
+- Pluralization in check output
+- Demo mode no longer shows "coming soon" noise
+
 ## [0.2.4] - 2026-02-01
 
 ### Added
