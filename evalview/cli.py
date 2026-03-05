@@ -7847,6 +7847,11 @@ def visualize_cmd(target: str, compare: tuple, title: Optional[str], notes: str,
 
 # ── compare command ────────────────────────────────────────────────────────────
 
+def _sanitize_label(label: str) -> str:
+    """Make a label safe for use in filenames."""
+    return re.sub(r"[^\w\-]", "_", label)
+
+
 async def _compare_async(
     v1: str,
     v2: str,
@@ -7861,8 +7866,6 @@ async def _compare_async(
     from evalview.core.parallel import execute_tests_parallel
     from evalview.reporters.json_reporter import JSONReporter
     from evalview.visualization import generate_visual_report
-    from rich.table import Table
-    from datetime import datetime as _dt
 
     print_evalview_banner(console, subtitle="[dim]A/B Endpoint Comparison[/dim]")
 
@@ -7880,8 +7883,7 @@ async def _compare_async(
     if no_judge:
         console.print("[yellow]⚠  --no-judge: skipping LLM-as-judge. Deterministic scoring only.[/yellow]\n")
     else:
-        result = get_or_select_provider(console)
-        if result is None:
+        if get_or_select_provider(console) is None:
             return
 
     evaluator = Evaluator(skip_llm_judge=no_judge)
@@ -7890,6 +7892,7 @@ async def _compare_async(
     tests_dir = Path(tests_path)
     if not tests_dir.exists():
         console.print(f"[red]❌ Tests directory not found: {tests_path}[/red]")
+        console.print(f"[dim]Tip: use --tests to specify a different directory[/dim]")
         return
 
     test_cases = TestCaseLoader.load_from_directory(tests_dir, "*.yaml")
@@ -7899,8 +7902,8 @@ async def _compare_async(
 
     console.print(f"[blue]Loaded {len(test_cases)} test case(s)[/blue]\n")
 
-    # Run tests against one endpoint, return results
-    async def _run_endpoint(endpoint: str, label: str) -> List[Any]:
+    # Run all tests against a single endpoint; returns (results, error_count)
+    async def _run_endpoint(endpoint: str, label: str) -> Tuple[List[Any], int]:
         console.print(f"[cyan]◈ Running against {label}:[/cyan] [dim]{endpoint}[/dim]")
         adapter = _create_adapter(_adapter_type, endpoint, timeout=timeout, allow_private_urls=True)
 
@@ -7909,32 +7912,47 @@ async def _compare_async(
             trace = await adapter.execute(test_case.input.query, context)
             return await evaluator.evaluate(test_case, trace, adapter_name=getattr(adapter, "name", None))
 
+        def _on_complete(name: str, ok: bool, res: Any) -> None:
+            if not ok or res is None:
+                console.print(f"  [yellow]⚠[/yellow] {name} [dim](execution error)[/dim]")
+            elif res.passed:
+                console.print(f"  [green]✓[/green] {name}")
+            else:
+                console.print(f"  [red]✗[/red] {name}")
+
         parallel_results = await execute_tests_parallel(
             test_cases,
             _execute,
             max_workers=8,
-            on_complete=lambda name, _ok, res: console.print(
-                f"  {'[green]✓[/green]' if (res and res.passed) else '[red]✗[/red]'} {name}"
-            ),
+            on_complete=_on_complete,
         )
-        results = [pr.result for pr in parallel_results if pr.result is not None]
-        passed_count = sum(1 for r in results if r.passed)
-        console.print(f"  [dim]{passed_count}/{len(results)} passing[/dim]\n")
-        return results
 
-    results_v1 = await _run_endpoint(v1, label_v1)
-    results_v2 = await _run_endpoint(v2, label_v2)
+        results = [pr.result for pr in parallel_results if pr.result is not None]
+        error_count = sum(1 for pr in parallel_results if pr.result is None)
+        passed_count = sum(1 for r in results if r.passed)
+
+        summary = f"  [dim]{passed_count}/{len(results)} passing"
+        if error_count:
+            summary += f", {error_count} error(s)"
+        console.print(summary + "[/dim]\n")
+
+        return results, error_count
+
+    results_v1, errors_v1 = await _run_endpoint(v1, label_v1)
+    results_v2, errors_v2 = await _run_endpoint(v2, label_v2)
 
     if not results_v1 or not results_v2:
         console.print("[red]❌ No results to compare.[/red]")
         return
 
     # Save both result sets
-    ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    slug_v1 = _sanitize_label(label_v1)
+    slug_v2 = _sanitize_label(label_v2)
     output_dir = Path(".evalview/results")
     output_dir.mkdir(parents=True, exist_ok=True)
-    file_v1 = output_dir / f"compare_{ts}_{label_v1}.json"
-    file_v2 = output_dir / f"compare_{ts}_{label_v2}.json"
+    file_v1 = output_dir / f"compare_{ts}_{slug_v1}.json"
+    file_v2 = output_dir / f"compare_{ts}_{slug_v2}.json"
     JSONReporter.save(results_v1, file_v1)
     JSONReporter.save(results_v2, file_v2)
 
@@ -7949,31 +7967,72 @@ async def _compare_async(
     )
     console.print(f"[green]✓ Comparison report:[/green] {report_path}\n")
 
-    # Summary table
+    # Per-test summary table
+    v1_by_name = {r.test_case: r for r in results_v1}
+    v2_by_name = {r.test_case: r for r in results_v2}
+
+    only_in_v2 = set(v2_by_name) - set(v1_by_name)
+    if only_in_v2:
+        console.print(f"[yellow]⚠  Tests only in {label_v2} (not compared): {', '.join(sorted(only_in_v2))}[/yellow]\n")
+
     table = Table(show_header=True, header_style="bold cyan")
-    table.add_column("Test", style="dim", min_width=20)
+    table.add_column("Test", min_width=20)
     table.add_column(label_v1, justify="center")
     table.add_column(label_v2, justify="center")
     table.add_column("Δ Score", justify="right")
+    table.add_column("Verdict", justify="center")
 
-    v1_by_name = {r.test_case: r for r in results_v1}
-    v2_by_name = {r.test_case: r for r in results_v2}
+    improved = degraded = unchanged = 0
     for name in sorted(v1_by_name):
         r1 = v1_by_name[name]
         r2 = v2_by_name.get(name)
         if r2 is None:
+            table.add_row(name, f"{r1.score:.1f}", "[dim]—[/dim]", "[dim]—[/dim]", "[dim]missing[/dim]")
             continue
+
         delta = r2.score - r1.score
-        delta_str = (
-            f"[green]+{delta:.1f}[/green]" if delta > 1
-            else f"[red]{delta:.1f}[/red]" if delta < -1
-            else "[dim]≈0[/dim]"
-        )
+        if delta > 1:
+            delta_str = f"[green]+{delta:.1f}[/green]"
+            verdict = "[green]improved[/green]"
+            improved += 1
+        elif delta < -1:
+            delta_str = f"[red]{delta:.1f}[/red]"
+            verdict = "[red]degraded[/red]"
+            degraded += 1
+        else:
+            delta_str = "[dim]≈0[/dim]"
+            verdict = "[dim]same[/dim]"
+            unchanged += 1
+
         s1 = f"[green]{r1.score:.1f}[/green]" if r1.passed else f"[red]{r1.score:.1f}[/red]"
         s2 = f"[green]{r2.score:.1f}[/green]" if r2.passed else f"[red]{r2.score:.1f}[/red]"
-        table.add_row(name, s1, s2, delta_str)
+        table.add_row(name, s1, s2, delta_str, verdict)
 
     console.print(table)
+    console.print()
+
+    # Overall verdict
+    total = improved + degraded + unchanged
+    if degraded == 0 and improved > 0:
+        console.print(Panel(
+            f"[green]{label_v2} is better[/green] — improved {improved}/{total} test(s), no regressions.\n"
+            f"[dim]Safe to promote {label_v2} to production.[/dim]",
+            border_style="green",
+        ))
+    elif degraded > 0 and improved == 0:
+        console.print(Panel(
+            f"[red]{label_v2} is worse[/red] — degraded {degraded}/{total} test(s), no improvements.\n"
+            f"[dim]Do not promote {label_v2} to production.[/dim]",
+            border_style="red",
+        ))
+    elif degraded > 0:
+        console.print(Panel(
+            f"[yellow]Mixed results[/yellow] — {improved} improved, {degraded} degraded, {unchanged} unchanged.\n"
+            f"[dim]Review degraded tests before promoting {label_v2}.[/dim]",
+            border_style="yellow",
+        ))
+    else:
+        console.print(f"[dim]No meaningful difference between {label_v1} and {label_v2}.[/dim]")
     console.print()
 
 
