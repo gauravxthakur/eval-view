@@ -701,13 +701,17 @@ async def _run_async(
 
     # ── Watch mode ────────────────────────────────────────────────────────────
     if watch:
-        await _run_watch_mode(
-            path=path, pattern=pattern, test=test, filter=filter, output=output,
-            verbose=verbose, track=track, compare_baseline=compare_baseline,
-            debug=debug, sequential=sequential, max_workers=max_workers,
-            max_retries=max_retries, retry_delay=retry_delay,
-            html_report=html_report, console=console,
-        )
+        try:
+            await _run_watch_mode(
+                path=path, pattern=pattern, test=test, filter=filter, output=output,
+                verbose=verbose, track=track, compare_baseline=compare_baseline,
+                debug=debug, sequential=sequential, max_workers=max_workers,
+                max_retries=max_retries, retry_delay=retry_delay,
+                html_report=html_report, console=console,
+            )
+        finally:
+            if trace_reporter:
+                trace_reporter.close()
     else:
         if trace_reporter:
             trace_reporter.close()
@@ -863,6 +867,7 @@ def _maybe_show_adapter_menu(
 ) -> tuple:
     """Show interactive adapter selection menu when multiple adapters are present."""
     import socket
+    from datetime import datetime
 
     tests_by_adapter: Dict[str, List[Any]] = {}
     for tc in test_cases:
@@ -1008,6 +1013,3 @@ async def _run_watch_mode(
     finally:
         watcher.stop()
 
-
-# Convenience re-export used by legacy imports
-from datetime import datetime

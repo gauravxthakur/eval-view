@@ -11,8 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from rich.live import Live
 from rich.panel import Panel
@@ -85,7 +84,6 @@ async def run_parallel(
         (results, passed, failed, execution_errors)
     """
     import time as time_module
-    import httpx as _httpx
     from evalview.core.parallel import execute_tests_parallel
     from evalview.core.llm_provider import judge_cost_tracker
 
