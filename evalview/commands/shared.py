@@ -182,15 +182,17 @@ def _execute_snapshot_tests(
                 console.print(f"[yellow]⚠ Skipping {tc.name}: {e}[/yellow]")
                 continue
 
+            async def _run_one_test() -> Any:
+                t = await adapter.execute(tc.input.query, tc.input.context)
+                return await evaluator.evaluate(tc, t)
+
             try:
-                trace = asyncio.run(adapter.execute(tc.input.query, tc.input.context))
+                result = asyncio.run(_run_one_test())
             except (asyncio.TimeoutError, asyncio.CancelledError) as e:
                 console.print(f"[red]✗ {tc.name}: Async execution failed - {e}[/red]")
                 continue
             except Exception:
                 raise
-
-            result = asyncio.run(evaluator.evaluate(tc, trace))
             results.append(result)
 
             if result.passed:

@@ -13,6 +13,20 @@ from evalview.commands.shared import console
 from evalview.telemetry.decorators import track_command
 
 
+async def _run_gym_scenario(scenario_path: Path, endpoint: str) -> bool:
+    """Load a gym scenario YAML, run it against endpoint, return pass/fail."""
+    from evalview.adapters.http_adapter import HTTPAdapter
+    from evalview.core.loader import TestCaseLoader
+    from evalview.evaluators.evaluator import Evaluator
+
+    tc = TestCaseLoader.load_from_file(scenario_path)
+    tc.endpoint = endpoint
+    adapter = HTTPAdapter(endpoint=endpoint)
+    trace = await adapter.execute(tc.input.query, tc.input.context)
+    eval_result = await Evaluator().evaluate(tc, trace)
+    return eval_result.passed
+
+
 @click.command("gym")
 @click.option(
     "--suite",
@@ -141,25 +155,9 @@ def gym(suite: str, endpoint: str, list_only: bool):
             name = data.get("name", scenario_path.stem)
             suite_name = scenario_path.parent.name
 
-            # Override endpoint
-            data["endpoint"] = endpoint
-
             console.print(f"[dim][{suite_name}][/dim] {name}... ", end="")
 
-            # Run the test using existing infrastructure
-            from evalview.adapters.http_adapter import HTTPAdapter
-            from evalview.core.loader import TestCaseLoader
-            from evalview.evaluators.evaluator import Evaluator
-
-            async def _run_gym_scenario() -> bool:
-                tc = TestCaseLoader.load_from_file(scenario_path)
-                tc.endpoint = endpoint
-                adapter = HTTPAdapter(endpoint=endpoint)
-                trace = await adapter.execute(tc.input.query, tc.input.context)
-                eval_result = await Evaluator().evaluate(tc, trace)
-                return eval_result.passed
-
-            if asyncio.run(_run_gym_scenario()):
+            if asyncio.run(_run_gym_scenario(scenario_path, endpoint)):
                 console.print("[green]PASS[/green]")
                 passed += 1
             else:
