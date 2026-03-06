@@ -1,0 +1,15 @@
+name: "Cohere First Test"
+description: "Testing my Cohere adapter"
+
+adapter: cohere
+
+input:
+  query: "Please say: Hello, open source world!"
+
+expected:
+  output:
+    contains:
+      - "Hello"
+
+thresholds:
+  min_score: 50

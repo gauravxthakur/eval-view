@@ -41,6 +41,7 @@ from evalview.adapters.tapescope_adapter import TapeScopeAdapter
 from evalview.adapters.langgraph_adapter import LangGraphAdapter
 from evalview.adapters.crewai_adapter import CrewAIAdapter
 from evalview.adapters.openai_assistants_adapter import OpenAIAssistantsAdapter
+from evalview.adapters.cohere_adapter import CohereAdapter
 from evalview.evaluators.evaluator import Evaluator
 from evalview.reporters.json_reporter import JSONReporter
 from evalview.reporters.console_reporter import ConsoleReporter
@@ -109,11 +110,15 @@ def _create_adapter(adapter_type: str, endpoint: str, timeout: float = 30.0, all
         "tapescope": TapeScopeAdapter,
         "crewai": CrewAIAdapter,
         "openai": OpenAIAssistantsAdapter,
+        "cohere": CohereAdapter,
     }
 
     adapter_class = adapter_map.get(adapter_type)
     if not adapter_class:
         raise ValueError(f"Unknown adapter type: {adapter_type}")
+    
+    if adapter_type == "cohere":
+        return adapter_class()
 
     if adapter_type == "http":
         return adapter_class(endpoint=endpoint, timeout=timeout, allow_private_urls=allow_private_urls)
@@ -1661,7 +1666,7 @@ model:
 )
 @click.option(
     "--adapter",
-    type=click.Choice(["http", "langgraph", "crewai", "anthropic", "openai-assistants", "tapescope", "huggingface", "goose", "ollama", "mcp"]),
+    type=click.Choice(["http", "langgraph", "crewai", "anthropic", "openai-assistants", "tapescope", "huggingface", "goose", "ollama", "mcp","cohere"]),
     help="Override adapter type (e.g., goose, langgraph, mcp). Overrides config file.",
 )
 @click.option(
@@ -1912,7 +1917,7 @@ async def _run_async(
 
     # ── Connectivity check ────────────────────────────────────────────────────
     _ec_adapter = (adapter_override or early_config.get("adapter", "http")).lower()
-    _ec_no_http_check = {"openai-assistants", "anthropic", "ollama", "goose"}
+    _ec_no_http_check = {"openai-assistants", "anthropic", "ollama", "goose", "cohere"}
     # Skip endpoint check for API-key-based adapters; always check URL-based ones
     _ec_endpoint = early_config.get("endpoint") if _ec_adapter not in _ec_no_http_check else None
 
@@ -2625,7 +2630,7 @@ async def _run_async(
         """Get adapter for test case - use test-specific if specified, otherwise global."""
         # If test specifies its own adapter, create it
         # Note: openai-assistants and goose don't need an endpoint (use SDK/CLI directly)
-        if test_case.adapter and (test_case.endpoint or test_case.adapter in ["openai-assistants", "goose"]):
+        if test_case.adapter and (test_case.endpoint or test_case.adapter in ["openai-assistants", "goose","cohere"]):
             test_adapter_type = test_case.adapter
             test_endpoint = test_case.endpoint
             test_config = test_case.adapter_config or {}
@@ -2689,6 +2694,9 @@ async def _run_async(
                     provider=test_config.get("provider"),
                     model=test_config.get("model"),
                 )
+            elif test_adapter_type == "cohere":
+                cohere_model = model_config.get("name") if isinstance(model_config, dict) else model_config
+                return CohereAdapter(api_key=os.getenv("COHERE_API_KEY"),  model=cohere_model)
             else:  # Default to HTTP adapter
                 return HTTPAdapter(
                     endpoint=test_endpoint,
