@@ -3,7 +3,13 @@ import logging
 from datetime import datetime
 from typing import Any, Optional, Dict
 
-from mistralai import Mistral
+try:
+    from mistralai import Mistral
+except ImportError:
+    raise ImportError(
+        "The mistralai package is required for the Mistral adapter. "
+        "Install it with: pip install evalview[mistral]"
+    )
 
 from evalview.adapters.base import AgentAdapter
 from evalview.core.types import (

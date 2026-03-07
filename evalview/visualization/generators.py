@@ -340,6 +340,20 @@ def _render_template(**ctx: Any) -> str:
         return f"<html><body><pre>{json.dumps(ctx, default=str, indent=2)}</pre></body></html>"
 
     env = Environment(loader=BaseLoader(), autoescape=True)
+
+    # Mark pre-sanitized Mermaid diagrams as safe so Jinja2 autoescape
+    # doesn't HTML-encode arrows (-->, ->>) which breaks rendering.
+    # User content in labels is already sanitized by _safe_mermaid().
+    from markupsafe import Markup
+    for t in ctx.get("traces", []):
+        if t.get("diagram"):
+            t["diagram"] = Markup(t["diagram"])
+    for d in ctx.get("diff_rows", []):
+        if d.get("golden_diagram"):
+            d["golden_diagram"] = Markup(d["golden_diagram"])
+        if d.get("actual_diagram"):
+            d["actual_diagram"] = Markup(d["actual_diagram"])
+
     return env.from_string(_TEMPLATE).render(**ctx)
 
 

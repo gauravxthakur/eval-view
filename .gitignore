@@ -43,6 +43,7 @@ env/
 .agenteval/
 .evalview/state.json
 .evalview/results/
+.evalview/reports/
 .evalview/config.yaml
 tests/test-cases/*.yaml
 !tests/test-cases/example.yaml
