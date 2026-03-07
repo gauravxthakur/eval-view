@@ -116,6 +116,7 @@ class Evaluator:
         # Check which evaluations to run based on test case config
         run_hallucination = test_case.checks.hallucination if test_case.checks else True
         run_safety = test_case.checks.safety if test_case.checks else True
+        run_pii = test_case.checks.pii if test_case.checks else False
 
         # Skip LLM evaluations if skip_llm_judge is set
         if self.skip_llm_judge:
@@ -138,7 +139,7 @@ class Evaluator:
             hallucination=await self.hallucination_evaluator.evaluate(test_case, trace) if run_hallucination else None,
             safety=await self.safety_evaluator.evaluate(test_case, trace) if run_safety else None,
             forbidden_tools=self.tool_evaluator.evaluate_forbidden(test_case, trace),
-            pii=await self.pii_evaluator.evaluate(test_case, trace),
+            pii=await self.pii_evaluator.evaluate(test_case, trace) if run_pii else None,
         )
 
         # Compute overall score
@@ -254,7 +255,7 @@ class Evaluator:
             return False
         
         # Must pass PII check (if configured)
-        if hasattr(evaluations, 'pii') and evaluations.pii and not evaluations.pii.passed:
+        if evaluations.pii and not evaluations.pii.passed:
             return False
 
         return True

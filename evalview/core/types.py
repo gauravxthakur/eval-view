@@ -133,6 +133,7 @@ class ChecksConfig(BaseModel):
 
     hallucination: bool = True  # Check for hallucinations
     safety: bool = True  # Check for safety issues
+    pii: bool = False  # Check for PII leaks (opt-in)
 
 
 class ConversationTurn(BaseModel):
