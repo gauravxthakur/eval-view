@@ -43,6 +43,7 @@ from evalview.adapters.tapescope_adapter import TapeScopeAdapter
 from evalview.adapters.langgraph_adapter import LangGraphAdapter
 from evalview.adapters.crewai_adapter import CrewAIAdapter
 from evalview.adapters.openai_assistants_adapter import OpenAIAssistantsAdapter
+from evalview.adapters.mistral_adapter import MistralAdapter
 from evalview.evaluators.evaluator import Evaluator
 from evalview.reporters.json_reporter import JSONReporter
 from evalview.reporters.console_reporter import ConsoleReporter
@@ -111,11 +112,15 @@ def _create_adapter(adapter_type: str, endpoint: str, timeout: float = 30.0, all
         "tapescope": TapeScopeAdapter,
         "crewai": CrewAIAdapter,
         "openai": OpenAIAssistantsAdapter,
+        "mistral": MistralAdapter,
     }
 
     adapter_class = adapter_map.get(adapter_type)
     if not adapter_class:
         raise ValueError(f"Unknown adapter type: {adapter_type}")
+    
+    if adapter_type == "mistral":
+        return adapter_class()
 
     if adapter_type == "http":
         return adapter_class(endpoint=endpoint, timeout=timeout, allow_private_urls=allow_private_urls)
@@ -1561,6 +1566,7 @@ def _init_wizard(dir: str):
         ("http",        "HTTP / REST API    (most common)"),
         ("anthropic",   "Anthropic API      (direct Claude calls)"),
         ("openai",      "OpenAI API         (direct GPT calls)"),
+        ("mistral",     "Mistral API        (direct Mistral calls)"),
         ("langgraph",   "LangGraph"),
         ("crewai",      "CrewAI"),
         ("ollama",      "Ollama             (local models)"),
@@ -1729,7 +1735,7 @@ model:
 )
 @click.option(
     "--adapter",
-    type=click.Choice(["http", "langgraph", "crewai", "anthropic", "openai-assistants", "tapescope", "huggingface", "goose", "ollama", "mcp"]),
+    type=click.Choice(["http", "langgraph", "crewai", "anthropic", "openai-assistants", "tapescope", "huggingface", "goose", "ollama", "mcp", "mistral"]),
     help="Override adapter type (e.g., goose, langgraph, mcp). Overrides config file.",
 )
 @click.option(
@@ -1980,7 +1986,7 @@ async def _run_async(
 
     # ── Connectivity check ────────────────────────────────────────────────────
     _ec_adapter = (adapter_override or early_config.get("adapter", "http")).lower()
-    _ec_no_http_check = {"openai-assistants", "anthropic", "ollama", "goose"}
+    _ec_no_http_check = {"openai-assistants", "anthropic", "ollama", "goose", "mistral"}
     # Skip endpoint check for API-key-based adapters; always check URL-based ones
     _ec_endpoint = early_config.get("endpoint") if _ec_adapter not in _ec_no_http_check else None
 
@@ -2373,6 +2379,15 @@ async def _run_async(
             )
             if verbose:
                 console.print("[dim]🪿 Using Goose CLI adapter[/dim]")
+        elif adapter_type == "mistral":
+            # Mistral adapter for direct API testing
+            mistral_model = config.get("model", "mistral-large-latest")
+            if isinstance(mistral_model, dict):
+                mistral_model = mistral_model.get("name", "mistral-large-latest")
+
+            adapter = MistralAdapter(
+                model=mistral_model,
+            )
         else:
             # HTTP adapter for standard REST APIs
             adapter = HTTPAdapter(
@@ -2693,7 +2708,7 @@ async def _run_async(
         """Get adapter for test case - use test-specific if specified, otherwise global."""
         # If test specifies its own adapter, create it
         # Note: openai-assistants and goose don't need an endpoint (use SDK/CLI directly)
-        if test_case.adapter and (test_case.endpoint or test_case.adapter in ["openai-assistants", "goose"]):
+        if test_case.adapter and (test_case.endpoint or test_case.adapter in ["openai-assistants", "goose", "mistral"]):
             test_adapter_type = test_case.adapter
             test_endpoint = test_case.endpoint
             test_config = test_case.adapter_config or {}
@@ -2756,6 +2771,10 @@ async def _run_async(
                     extensions=test_case.input.context.get("extensions") if test_case.input.context else None,
                     provider=test_config.get("provider"),
                     model=test_config.get("model"),
+                )
+            elif test_adapter_type == "mistral":
+                return MistralAdapter(
+                    model=test_config.get("model", "mistral-large-latest")
                 )
             else:  # Default to HTTP adapter
                 return HTTPAdapter(

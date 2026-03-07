@@ -1,0 +1,18 @@
+name: "Mistral First Test"
+description: "Testing the new Mistral adapter integration"
+
+adapter: mistral
+
+input:
+  query: "What is 2+2? Reply with just the number 4."
+
+expected:
+  output:
+    contains:
+      - "4"
+    not_contains:
+      - "error"
+
+thresholds:
+  min_score: 50
+  max_latency: 15000
