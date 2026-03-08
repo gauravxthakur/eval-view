@@ -360,6 +360,8 @@ class StepTrace(BaseModel):
     success: bool
     error: Optional[str] = None
     metrics: StepMetrics
+    turn_index: Optional[int] = None
+    turn_query: Optional[str] = None 
 
 
 class ExecutionMetrics(BaseModel):

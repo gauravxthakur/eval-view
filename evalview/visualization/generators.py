@@ -48,7 +48,21 @@ def _mermaid_from_steps(steps: List[Any], query: str = "", output: str = "") -> 
     short_query = _safe_mermaid((query[:40] + "…") if len(query) > 40 else query) if query else "..."
     lines.append(f"    User->>Agent: {short_query}")
 
+    current_turn = None
+
     for step in steps:
+        step_turn = getattr(step, "turn_index", None)
+
+        # Add a turn note if this step belongs to a new turn.  This helps visually group steps by turn in the diagram.
+        if step_turn is not None and step_turn != current_turn:
+          step_query = getattr(step, "turn_query", "") or ""
+          short_step_query = (step_query[:57] + "...") if len(step_query) > 60 else step_query
+          if short_step_query:
+                lines.append(f"    Note over User,Agent: Turn {step_turn} - {short_step_query}")
+          else:
+              lines.append(f"    Note over User,Agent: Turn {step_turn}")
+          current_turn = step_turn
+
         tool = str(getattr(step, "tool_name", None) or getattr(step, "step_name", None) or "unknown")
         alias = seen_tools.get(tool, tool)
         params = getattr(step, "parameters", {}) or {}
@@ -282,6 +296,27 @@ def generate_visual_report(
         except AttributeError:
             cost, latency, tokens = 0.0, 0.0, None
         has_steps = bool(getattr(r.trace, "steps", None))
+
+        # Extract turn and tool info for the trace list view
+        turn_list = []
+        if has_steps:
+            current_t_idx = None
+            current_turn_data = None
+            for step in r.trace.steps:
+              t_idx = getattr(step, "turn_index", None)
+              if t_idx is not None:
+                  if t_idx != current_t_idx:
+                      current_t_idx = t_idx
+                      current_turn_data = {
+                          "index": t_idx, 
+                          "query": getattr(step, "turn_query", ""), 
+                          "tools": []
+                      }
+                      turn_list.append(current_turn_data)
+                  
+                  tool_name = str(getattr(step, "tool_name", None) or getattr(step, "step_name", None) or "unknown")
+                  current_turn_data["tools"].append(tool_name)
+
         traces.append({
             "name": r.test_case,
             "diagram": _mermaid_trace(r) if has_steps else "",
@@ -293,6 +328,7 @@ def generate_visual_report(
             "score": round(r.score, 1),
             "query": getattr(r, "input_query", "") or "",
             "output": _strip_markdown(getattr(r, "actual_output", "") or ""),
+            "turns": turn_list,
         })
     actual_results_dict = {r.test_case: r for r in results}
     diff_rows = _diff_rows(diffs or [], golden_traces, actual_results_dict)
@@ -717,6 +753,28 @@ table tr:hover td{background:rgba(255,255,255,.02)}
           {% endif %}
           {% if t.has_steps %}
           <div class="mermaid-box"><div class="mermaid">{{ t.diagram }}</div></div>
+          {% if t.turns %}
+          <div style="margin-top: 16px;">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Conversation Turns</div>
+            
+            {% for turn in t.turns %}
+            <details style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;overflow:hidden;">
+              <summary style="padding:10px 14px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px;">
+                <span style="color:var(--blue)">Turn {{ turn.index }}</span>
+                <span style="color:var(--muted);font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ turn.query }}</span>
+              </summary>
+              <div style="padding:10px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.2);font-family:monospace;font-size:11px;color:var(--muted);">
+                Tools called: 
+                {% if turn.tools %}
+                  {% for tool in turn.tools %}<span style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:4px;margin-right:4px;">{{ tool }}</span>{% endfor %}
+                {% else %}
+                  None
+                {% endif %}
+              </div>
+            </details>
+            {% endfor %}
+          </div>
+          {% endif %}
           {% else %}
           <div style="display:flex;align-items:center;justify-content:center;padding:20px 0 8px">
             <span style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:8px 18px;font-size:12px;color:var(--muted)">

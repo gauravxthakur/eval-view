@@ -67,7 +67,7 @@ async def _execute_multi_turn_trace(test_case: Any, adapter: Any) -> ExecutionTr
     all_steps: List[Any] = []
     turn_traces: List[Any] = []
 
-    for turn in test_case.turns:
+    for turn_index, turn in enumerate(test_case.turns):
         turn_context: Dict[str, Any] = dict(turn.context or {})
         if test_case.tools:
             turn_context.setdefault("tools", test_case.tools)
@@ -75,6 +75,13 @@ async def _execute_multi_turn_trace(test_case: Any, adapter: Any) -> ExecutionTr
             turn_context["conversation_history"] = list(conversation_history)
 
         trace = await adapter.execute(turn.query, turn_context)
+        
+        # Annotate each step with turn index for better traceability in multi-turn scenarios
+        for step in trace.steps:
+            # Steps are 1-indexed for readability (Turn 1, Turn 2, etc.)
+            step.turn_index = turn_index + 1 
+            step.turn_query = turn.query
+
         turn_traces.append(trace)
         all_steps.extend(trace.steps)
 
