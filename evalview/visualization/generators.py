@@ -314,8 +314,9 @@ def generate_visual_report(
                       }
                       turn_list.append(current_turn_data)
                   
-                  tool_name = str(getattr(step, "tool_name", None) or getattr(step, "step_name", None) or "unknown")
-                  current_turn_data["tools"].append(tool_name)
+                  if current_turn_data is not None:
+                    tool_name = str(getattr(step, "tool_name", None) or getattr(step, "step_name", None) or "unknown")
+                    current_turn_data["tools"].append(tool_name)
 
         traces.append({
             "name": r.test_case,

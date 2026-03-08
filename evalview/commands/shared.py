@@ -61,11 +61,15 @@ def _create_adapter(adapter_type: str, endpoint: str, timeout: float = 30.0, all
     return adapter_class(endpoint=endpoint, timeout=timeout)
 
 
-async def _execute_multi_turn_trace(test_case: Any, adapter: Any) -> ExecutionTrace:
+async def _execute_multi_turn_trace(test_case: TestCase, adapter: AgentAdapter) -> ExecutionTrace:
     """Execute all turns of a multi-turn test and return a merged ExecutionTrace."""
     conversation_history: List[Dict[str, Any]] = []
     all_steps: List[Any] = []
     turn_traces: List[Any] = []
+
+    # 1. Iterate through each turn, execute, and collect traces
+    if not test_case.turns:
+        raise ValueError(f"Test case {test_case.name} has no turns defined.")
 
     for turn_index, turn in enumerate(test_case.turns):
         turn_context: Dict[str, Any] = dict(turn.context or {})
@@ -76,9 +80,8 @@ async def _execute_multi_turn_trace(test_case: Any, adapter: Any) -> ExecutionTr
 
         trace = await adapter.execute(turn.query, turn_context)
         
-        # Annotate each step with turn index for better traceability in multi-turn scenarios
+        # Annotate each step with turn index for better traceability
         for step in trace.steps:
-            # Steps are 1-indexed for readability (Turn 1, Turn 2, etc.)
             step.turn_index = turn_index + 1 
             step.turn_query = turn.query
 
@@ -88,23 +91,16 @@ async def _execute_multi_turn_trace(test_case: Any, adapter: Any) -> ExecutionTr
         conversation_history.append({"role": "user", "content": turn.query})
         conversation_history.append({"role": "assistant", "content": trace.final_output})
 
+    # 2. Merge metrics across turns
     total_cost = sum(t.metrics.total_cost for t in turn_traces)
     total_latency = sum(t.metrics.total_latency for t in turn_traces)
+    
     merged_tokens: Optional[TokenUsage] = None
     if any(t.metrics.total_tokens for t in turn_traces):
         merged_tokens = TokenUsage(
-            input_tokens=sum(
-                (t.metrics.total_tokens.input_tokens if t.metrics.total_tokens else 0)
-                for t in turn_traces
-            ),
-            output_tokens=sum(
-                (t.metrics.total_tokens.output_tokens if t.metrics.total_tokens else 0)
-                for t in turn_traces
-            ),
-            cached_tokens=sum(
-                (t.metrics.total_tokens.cached_tokens if t.metrics.total_tokens else 0)
-                for t in turn_traces
-            ),
+            input_tokens=sum((t.metrics.total_tokens.input_tokens if t.metrics.total_tokens else 0) for t in turn_traces),
+            output_tokens=sum((t.metrics.total_tokens.output_tokens if t.metrics.total_tokens else 0) for t in turn_traces),
+            cached_tokens=sum((t.metrics.total_tokens.cached_tokens if t.metrics.total_tokens else 0) for t in turn_traces),
         )
 
     last_trace = turn_traces[-1]
