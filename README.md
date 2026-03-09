@@ -142,76 +142,6 @@ If you run `evalview snapshot` today and `evalview check` after every change, yo
 
 ---
 
-## What EvalView Catches
-
-| Status | What it means | What you do |
-|--------|--------------|-------------|
-| ✅ **PASSED** | Agent behavior matches baseline | Ship with confidence |
-| ⚠️ **TOOLS_CHANGED** | Agent is calling different tools | Review the diff |
-| ⚠️ **OUTPUT_CHANGED** | Same tools, output quality shifted | Review the diff |
-| ❌ **REGRESSION** | Score dropped significantly | Fix before shipping |
-
----
-
-## How It Works
-
-**Simple workflow (recommended):**
-
-```bash
-# 1. Your agent works correctly
-evalview snapshot                 # 📸 Save current behavior as baseline
-
-# 2. You change something (prompt, model, tools)
-evalview check                    # 🔍 Detect regressions automatically
-
-# 3. EvalView tells you exactly what changed
-#    → ✅ All clean! No regressions detected.
-#    → ⚠️ TOOLS_CHANGED: +web_search, -calculator
-#    → ❌ REGRESSION: score 85 → 71
-```
-
-**Cost control:**
-
-```bash
-evalview run --dry-run            # Preview test plan, no API calls
-evalview run --budget 1.00        # Cap total spend at $1
-evalview check --dry-run          # Preview check plan
-```
-
-**Advanced workflow (more control):**
-
-```bash
-evalview run --save-golden        # Save specific result as baseline
-evalview run --diff               # Compare with custom options
-```
-
-That's it. **Deterministic proof, no LLM-as-judge required, no API keys needed.** Judge responses are cached by default — use `--no-judge-cache` to disable.
-
-**Central config** — set judge model once in `.evalview/config.yaml`:
-
-```yaml
-judge:
-  provider: anthropic
-  model: sonnet
-```
-
-### Progress Tracking
-
-EvalView now tracks your progress and celebrates wins:
-
-```bash
-evalview check
-# 🔍 Comparing against your baseline...
-# ✨ All clean! No regressions detected.
-# 🎯 5 clean checks in a row! You're on a roll.
-```
-
-**Features:**
-- **Streak tracking** — Celebrate consecutive clean checks (3, 5, 10, 25+ milestones)
-- **Health score** — See your project's stability at a glance
-- **Smart recaps** — "Since last time" summaries to stay in context
-- **Progress visualization** — Track improvement over time
-
 ### Multi-Reference Goldens (for non-deterministic agents)
 
 Some agents produce valid variations. Save up to 5 golden variants per test:
@@ -225,8 +155,6 @@ evalview snapshot --variant variant2
 evalview check
 # ✅ Matched variant 2/3
 ```
-
-Perfect for LLM-based agents with creative variation.
 
 ---
 
