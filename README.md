@@ -489,17 +489,17 @@ Available patterns: `tool-not-called` · `wrong-tool-chosen` · `tool-error-hand
 
 ---
 
-## Visual Reports & Claude Code MCP
+## Visual Reports
 
 **Every `evalview run` automatically opens an interactive HTML report in your browser.** No flag needed.
 
-The report includes tabbed **Overview** (KPI cards, score charts, cost-per-query table), **Execution Trace** (Mermaid sequence diagrams per test with full query/response), **Diffs** (golden vs actual with similarity scores), and **Timeline** (per-step latencies). Glassmorphism dark theme, fully self-contained HTML — safe to attach to PRs or Slack.
-
 <p align="center">
-  <img src="docs/trace-screenshot.png" alt="EvalView Execution Trace — Mermaid sequence diagram showing tool calls, parameters, and response" width="860">
+  <img src="docs/report-screenshot.png" alt="EvalView HTML Report — pass rate, scores, cost, latency" width="860">
   <br>
-  <sub>Execution Trace tab — sequence diagram showing every tool call, parameters, and the full agent response</sub>
+  <sub>Overview tab — pass rate, quality scores, cost per query, and latency at a glance</sub>
 </p>
+
+The report includes tabbed **Overview** (KPI cards, score charts, cost-per-query table), **Execution Trace** (Mermaid sequence diagrams per test with full query/response), **Diffs** (golden vs actual with similarity scores), and **Timeline** (per-step latencies). Glassmorphism dark theme, fully self-contained HTML — safe to attach to PRs or Slack.
 
 ```bash
 evalview run                              # Runs tests and opens report automatically
@@ -508,7 +508,9 @@ evalview inspect latest --notes "PR #42" # Regenerate report for a past run
 evalview visualize --compare run1.json --compare run2.json  # Side-by-side comparison
 ```
 
-**Claude Code MCP** — ask Claude inline without leaving your conversation:
+### Claude Code MCP
+
+Ask Claude inline without leaving your conversation:
 
 ```bash
 claude mcp add --transport stdio evalview -- evalview mcp serve
