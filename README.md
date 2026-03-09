@@ -43,18 +43,18 @@
 ### How it works
 
 ```
-┌─────────┐      ┌──────────┐      ┌─────────────┐
-│ Your App │ ──── │ EvalView │ ──── │  Your Agent  │
-└─────────┘      └──────────┘      └─────────────┘
-                       │
-          ┌────────────┼────────────┐
-          │            │            │
-      Captures    Compares     Reports
-     execution    against     regressions
-       trace      baseline     + diffs
+┌────────────┐      ┌──────────┐      ┌──────────────┐
+│ Test Cases  │ ──→  │ EvalView │ ──→  │  Your Agent   │
+│   (YAML)   │      │          │ ←──  │   (any API)   │
+└────────────┘      └──────────┘      └──────────────┘
+                          │
+                ┌─────────┼─────────┐
+                │         │         │
+            Captures   Compares   Reports
+            the trace  to golden  regressions
 ```
 
-**Your data stays local.** EvalView sits between your test cases and your agent's API. It sends test queries to your agent, captures the execution trace (tools called, outputs, cost, latency), and compares against your saved baseline. Nothing is sent to EvalView servers — all processing happens on your machine.
+**Your data stays local.** EvalView sends your test queries to your agent's API, captures the execution trace (tools called, outputs, cost, latency), and compares against your saved baseline. Nothing is sent to EvalView servers — all processing happens on your machine.
 
 ### The workflow
 
