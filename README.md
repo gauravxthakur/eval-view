@@ -15,7 +15,11 @@
   detect prompt regression, AI agent observability alternative, open source eval framework
 -->
 
-# EvalView — Regression testing for AI agents
+<p align="center">
+  <img src="assets/logo.png" alt="EvalView" width="300">
+</p>
+
+<p align="center"><strong>Regression testing for AI agents.</strong></p>
 
 > Your agent works today. Will it work after the next prompt tweak, model swap, or tool change? EvalView tells you in one command.
 
