@@ -39,6 +39,7 @@ class ExpectedOutput(BaseModel):
     contains: Optional[List[str]] = None
     not_contains: Optional[List[str]] = None
     json_schema: Optional[Dict[str, Any]] = None
+    regex_patterns: Optional[List[str]] = None
     must_acknowledge_uncertainty: Optional[bool] = None
     no_pii: Optional[bool] = None
 

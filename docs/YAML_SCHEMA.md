@@ -123,7 +123,8 @@ expected:
 |-------|------|----------|---------|-------------|
 | `contains` | list[string] | No | `null` | Strings that MUST appear in output |
 | `not_contains` | list[string] | No | `null` | Strings that MUST NOT appear in output |
-| `json_schema` | object | No | `null` | JSON schema the output must validate against |
+| `json_schema` | object | No | `null` | JSON schema the output must validate against. Zero-cost — no API calls. |
+| `regex_patterns` | list[string] | No | `null` | Regex patterns the output must match (case-insensitive). Zero-cost — no API calls. |
 | `must_acknowledge_uncertainty` | boolean | No | `null` | Output must acknowledge uncertainty |
 | `no_pii` | boolean | No | `null` | Output must not contain PII |
 
@@ -141,6 +142,9 @@ expected:
       type: object
       required:
         - answer
+    regex_patterns:
+      - "\\d+\\.\\d{2}"          # must contain a price (e.g., 42.99)
+      - "## Summary"             # must have a markdown heading
 ```
 
 ---

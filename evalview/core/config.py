@@ -134,6 +134,28 @@ class DiffConfig(BaseModel):
     )
 
 
+class JudgeConfig(BaseModel):
+    """LLM judge configuration.
+
+    Set once in config.yaml to avoid repeating model/provider in every CLI call.
+    CLI flags (--judge-model, --judge-provider) take priority over this config.
+
+    Example in config.yaml:
+        judge:
+          provider: anthropic
+          model: sonnet
+    """
+
+    provider: Optional[str] = Field(
+        default=None,
+        description="LLM provider: openai, anthropic, gemini, grok, ollama"
+    )
+    model: Optional[str] = Field(
+        default=None,
+        description="Model name or alias (e.g., gpt-4o, sonnet, llama-70b)"
+    )
+
+
 class EvalViewConfig(BaseModel):
     """Complete EvalView configuration (loaded from config.yaml)."""
 
@@ -144,11 +166,18 @@ class EvalViewConfig(BaseModel):
     allow_private_urls: bool = True
     model: Optional[Dict[str, Any]] = None
 
+    # Budget cap — maximum total spend for a single run (dollars).
+    budget: Optional[float] = Field(
+        default=None,
+        description="Maximum total budget in dollars for a run"
+    )
+
     # New configuration sections
     scoring: Optional[ScoringConfig] = None
     retry: Optional[RetryConfig] = None
     ci: Optional[CIConfig] = None
     diff: Optional[DiffConfig] = None
+    judge: Optional[JudgeConfig] = None
 
     def get_scoring_weights(self) -> ScoringWeights:
         """Get scoring weights with defaults."""
@@ -173,6 +202,10 @@ class EvalViewConfig(BaseModel):
         if self.diff:
             return self.diff
         return DiffConfig()
+
+    def get_judge_config(self) -> Optional[JudgeConfig]:
+        """Get judge config if set."""
+        return self.judge
 
 
 # Default weights for backward compatibility

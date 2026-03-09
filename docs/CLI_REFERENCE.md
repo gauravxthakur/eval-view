@@ -53,6 +53,10 @@ Options:
   --coverage             Show behavior coverage: tasks, tools, paths, eval dimensions
   --judge-model TEXT     Model for LLM-as-judge (e.g., gpt-5, sonnet, llama-70b)
   --judge-provider TEXT  Provider for LLM-as-judge (openai, anthropic, huggingface, gemini, grok, ollama)
+  --judge-cache/--no-judge-cache  Cache LLM judge responses (on by default)
+  --no-judge             Skip LLM-as-judge, use deterministic scoring only (free)
+  --budget FLOAT         Maximum total budget in dollars. Warns if exceeded.
+  --dry-run              Preview test plan and estimate cost without executing
 ```
 
 ### Model Shortcuts
@@ -85,6 +89,65 @@ evalview run --judge-model gpt-5 --judge-provider openai
 evalview run --judge-model sonnet --judge-provider anthropic
 evalview run --judge-model llama-70b --judge-provider huggingface  # Free!
 evalview run --judge-model llama3.2 --judge-provider ollama  # Free & Local!
+
+# Cost control
+evalview run --dry-run                     # Preview plan, no API calls
+evalview run --budget 1.00                 # Cap spend at $1
+evalview run --no-judge                    # Free — deterministic scoring only
+evalview run --no-judge-cache              # Disable judge response caching
+```
+
+---
+
+## `evalview snapshot`
+
+Run tests and save passing results as baseline.
+
+```bash
+evalview snapshot [TEST_PATH] [OPTIONS]
+
+Options:
+  -t, --test TEXT     Snapshot only this specific test
+  -n, --notes TEXT    Notes about this snapshot
+  --variant TEXT      Save as named variant (max 5 per test)
+```
+
+### Examples
+
+```bash
+evalview snapshot                           # Snapshot all passing tests
+evalview snapshot --test "my-test"          # Snapshot one test
+evalview snapshot --variant v2             # Save alternate acceptable behavior
+```
+
+---
+
+## `evalview check`
+
+Check current behavior against snapshot baseline.
+
+```bash
+evalview check [TEST_PATH] [OPTIONS]
+
+Options:
+  -t, --test TEXT     Check only this specific test
+  --json              Output JSON for CI
+  --fail-on TEXT      Comma-separated statuses to fail on (default: REGRESSION)
+  --strict            Fail on any change
+  --report PATH       Generate HTML report
+  --semantic-diff/--no-semantic-diff  Toggle embedding-based similarity
+  --budget FLOAT      Maximum total budget in dollars
+  --dry-run           Preview check plan without executing
+```
+
+### Examples
+
+```bash
+evalview check                              # Check all tests
+evalview check --test "my-test"             # Check one test
+evalview check --json --fail-on REGRESSION  # CI mode
+evalview check --dry-run                    # Preview plan, no API calls
+evalview check --budget 0.50               # Cap spend at $0.50
 ```
 
 ---

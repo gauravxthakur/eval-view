@@ -58,10 +58,11 @@ EvalView sends test queries to your agent's API and records everything: which to
 | Layer | What it checks | Needs API key? | Cost |
 |-------|---------------|:--------------:|------|
 | **Tool calls + sequence** | Exact tool names, order, parameters | No | Free |
+| **Code-based checks** | Regex patterns, JSON schema, contains/not_contains | No | Free |
 | **Semantic similarity** | Output meaning via embeddings | `OPENAI_API_KEY` | ~$0.00004/test |
 | **LLM-as-judge** | Output quality scored by GPT | `OPENAI_API_KEY` | ~$0.01/test |
 
-The first layer alone catches most regressions — fully offline, zero cost. Add the API key when you need deeper evaluation. LLM-as-judge includes **statistical mode (pass@k)**: run N times, require a pass rate, so a single non-deterministic score can't fail your CI. Judge responses are cached to cut costs by ~80%.
+The first two layers alone catch most regressions — fully offline, zero cost. Add the API key when you need deeper evaluation. LLM-as-judge includes **statistical mode (pass@k)**: run N times, require a pass rate, so a single non-deterministic score can't fail your CI. Judge responses are cached by default to cut costs by ~80%.
 
 ```
 ┌────────────┐      ┌──────────┐      ┌──────────────┐
@@ -169,6 +170,14 @@ evalview check                    # 🔍 Detect regressions automatically
 #    → ❌ REGRESSION: score 85 → 71
 ```
 
+**Cost control:**
+
+```bash
+evalview run --dry-run            # Preview test plan, no API calls
+evalview run --budget 1.00        # Cap total spend at $1
+evalview check --dry-run          # Preview check plan
+```
+
 **Advanced workflow (more control):**
 
 ```bash
@@ -176,7 +185,15 @@ evalview run --save-golden        # Save specific result as baseline
 evalview run --diff               # Compare with custom options
 ```
 
-That's it. **Deterministic proof, no LLM-as-judge required, no API keys needed.** Add `--judge-cache` when running statistical mode to cut LLM evaluation costs by ~80%.
+That's it. **Deterministic proof, no LLM-as-judge required, no API keys needed.** Judge responses are cached by default — use `--no-judge-cache` to disable.
+
+**Central config** — set judge model once in `.evalview/config.yaml`:
+
+```yaml
+judge:
+  provider: anthropic
+  model: sonnet
+```
 
 ### Progress Tracking
 

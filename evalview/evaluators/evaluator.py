@@ -1,8 +1,10 @@
 """Main evaluator orchestrator."""
 
+import json as _json
 import logging
+import re as _re
 from datetime import datetime
-from typing import Optional, Dict, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 # ---------------------------------------------------------------------------
 # Deterministic output scoring weights (must sum to 100)
@@ -10,10 +12,12 @@ from typing import Optional, Dict, TYPE_CHECKING
 # These control the fallback scorer used when no LLM judge is available.
 # Adjust here to rebalance; the cap prevents misleadingly high scores
 # since deterministic heuristics are inherently approximate.
-_DETO_CONTAINS_WEIGHT: float = 40.0      # % score for contains checks
-_DETO_NOT_CONTAINS_WEIGHT: float = 20.0  # % score for not_contains checks
-_DETO_LENGTH_WEIGHT: float = 20.0        # % score for non-empty output
-_DETO_RELEVANCE_WEIGHT: float = 20.0     # % score for query-term overlap
+_DETO_CONTAINS_WEIGHT: float = 30.0      # % score for contains checks
+_DETO_NOT_CONTAINS_WEIGHT: float = 15.0  # % score for not_contains checks
+_DETO_LENGTH_WEIGHT: float = 15.0        # % score for non-empty output
+_DETO_RELEVANCE_WEIGHT: float = 15.0     # % score for query-term overlap
+_DETO_REGEX_WEIGHT: float = 15.0         # % score for regex pattern checks
+_DETO_JSON_SCHEMA_WEIGHT: float = 10.0   # % score for JSON schema validation
 _DETO_SCORE_CAP: float = 75.0           # max score; signals "approximate"
 _DETO_MIN_OUTPUT_LENGTH: int = 10        # chars below which output is "short"
 _DETO_MIN_QUERY_WORD_LENGTH: int = 3     # minimum chars to treat as a keyword
@@ -38,6 +42,11 @@ from evalview.evaluators.pii_evaluator import PIIEvaluator
 
 if TYPE_CHECKING:
     from evalview.core.judge_cache import JudgeCache
+
+
+class _RegexTimeoutError(Exception):
+    """Raised when a regex pattern match exceeds the time limit (ReDoS protection)."""
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +269,165 @@ class Evaluator:
 
         return True
 
+    # ------------------------------------------------------------------
+    # Code-based (zero-cost) evaluation helpers
+    # ------------------------------------------------------------------
+
+    # Maximum output length to run regex/schema checks against.
+    # Prevents pathological performance on very large agent outputs.
+    _MAX_CHECK_OUTPUT_LEN: int = 100_000  # 100 KB
+
+    # Maximum time (seconds) a single regex match is allowed to take.
+    # Protects against ReDoS from user-supplied patterns.
+    _REGEX_TIMEOUT_S: float = 2.0
+
+    @staticmethod
+    def _compile_regex(pattern: str) -> Optional[_re.Pattern]:  # type: ignore[type-arg]
+        """Compile a regex pattern with validation.
+
+        Returns the compiled pattern, or None if the pattern is invalid.
+        Invalid patterns are logged as warnings.
+        """
+        try:
+            return _re.compile(pattern, _re.IGNORECASE | _re.DOTALL)
+        except _re.error as e:
+            logger.warning("Invalid regex pattern %r: %s", pattern, e)
+            return None
+
+    @staticmethod
+    def _check_regex_patterns(output: str, patterns: List[str]) -> Tuple[List[str], List[str]]:
+        """Check output against regex patterns.
+
+        Safety measures:
+        - Output is truncated to _MAX_CHECK_OUTPUT_LEN to bound runtime.
+        - Each pattern is compiled once and validated before matching.
+        - A per-pattern timeout prevents ReDoS from catastrophic backtracking.
+
+        Returns (passed, failed).
+        """
+        import signal
+        import sys
+
+        truncated = output[:Evaluator._MAX_CHECK_OUTPUT_LEN]
+        passed: List[str] = []
+        failed: List[str] = []
+
+        # signal.alarm is Unix-only; on Windows we skip the timeout guard.
+        can_alarm = hasattr(signal, "SIGALRM") and sys.platform != "win32"
+
+        for pattern in patterns:
+            compiled = Evaluator._compile_regex(pattern)
+            if compiled is None:
+                failed.append(pattern)
+                continue
+
+            try:
+                if can_alarm:
+                    # Set an alarm to interrupt long-running matches (ReDoS protection).
+                    old_handler = signal.signal(signal.SIGALRM, Evaluator._alarm_handler)
+                    signal.alarm(int(Evaluator._REGEX_TIMEOUT_S) or 1)
+
+                matched = compiled.search(truncated) is not None
+
+                if can_alarm:
+                    signal.alarm(0)  # cancel alarm
+                    signal.signal(signal.SIGALRM, old_handler)
+
+                if matched:
+                    passed.append(pattern)
+                else:
+                    failed.append(pattern)
+            except _RegexTimeoutError:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+                logger.warning("Regex pattern timed out (possible ReDoS): %r", pattern)
+                failed.append(pattern)
+            except Exception as e:
+                if can_alarm:
+                    signal.alarm(0)
+                logger.warning("Regex match error for %r: %s", pattern, e)
+                failed.append(pattern)
+
+        return passed, failed
+
+    @staticmethod
+    def _alarm_handler(signum: int, frame: Any) -> None:
+        """Signal handler that raises _RegexTimeoutError."""
+        raise _RegexTimeoutError()
+
+    @staticmethod
+    def _check_json_schema(output: str, schema: Dict[str, Any]) -> Tuple[bool, str]:
+        """Validate output against JSON schema. Returns (passed, error_message)."""
+        truncated = output[:Evaluator._MAX_CHECK_OUTPUT_LEN]
+
+        data: Any = None
+        try:
+            data = _json.loads(truncated)
+        except (ValueError, _json.JSONDecodeError):
+            # Try to extract JSON object from surrounding text.
+            # Use a non-greedy match to get the FIRST complete JSON object,
+            # not a greedy span from first '{' to last '}'.
+            for match in _re.finditer(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', truncated):
+                try:
+                    data = _json.loads(match.group())
+                    break  # found valid JSON
+                except (ValueError, _json.JSONDecodeError):
+                    continue
+
+        if data is None:
+            return False, "Output does not contain valid JSON"
+
+        # Try jsonschema library first (full spec compliance)
+        try:
+            import jsonschema
+            jsonschema.validate(data, schema)
+            return True, ""
+        except ImportError:
+            # Fallback: basic structural check without jsonschema dependency
+            return Evaluator._basic_schema_check(data, schema)
+        except Exception as e:
+            return False, str(e)
+
+    @staticmethod
+    def _basic_schema_check(data: Any, schema: Dict[str, Any]) -> Tuple[bool, str]:
+        """Minimal JSON schema validation without jsonschema library."""
+        errors: List[str] = []
+
+        # Check type
+        expected_type = schema.get("type")
+        if expected_type == "object" and not isinstance(data, dict):
+            return False, f"Expected object, got {type(data).__name__}"
+        if expected_type == "array" and not isinstance(data, list):
+            return False, f"Expected array, got {type(data).__name__}"
+
+        # Check required properties
+        if isinstance(data, dict):
+            required = schema.get("required", [])
+            for prop in required:
+                if prop not in data:
+                    errors.append(f"Missing required property: {prop}")
+
+            # Check property types
+            props = schema.get("properties", {})
+            for prop_name, prop_schema in props.items():
+                if prop_name in data:
+                    prop_type = prop_schema.get("type")
+                    value = data[prop_name]
+                    if prop_type == "string" and not isinstance(value, str):
+                        errors.append(f"{prop_name}: expected string")
+                    elif prop_type == "number" and not isinstance(value, (int, float)):
+                        errors.append(f"{prop_name}: expected number")
+                    elif prop_type == "boolean" and not isinstance(value, bool):
+                        errors.append(f"{prop_name}: expected boolean")
+                    elif prop_type == "array" and not isinstance(value, list):
+                        errors.append(f"{prop_name}: expected array")
+                    elif prop_type == "object" and not isinstance(value, dict):
+                        errors.append(f"{prop_name}: expected object")
+
+        if errors:
+            return False, "; ".join(errors)
+        return True, ""
+
     def _deterministic_output_eval(
         self, test_case: TestCase, trace: ExecutionTrace
     ) -> OutputEvaluation:
@@ -345,6 +513,33 @@ class Evaluator:
             score += relevance_ratio * _DETO_RELEVANCE_WEIGHT
             if relevance_ratio > 0.5:
                 rationale_parts.append("Output appears relevant to query")
+
+        # Regex pattern checks (zero-cost)
+        if test_case.expected.output and test_case.expected.output.regex_patterns:
+            patterns = test_case.expected.output.regex_patterns
+            regex_passed, regex_failed = self._check_regex_patterns(output, patterns)
+            if patterns:
+                regex_ratio = len(regex_passed) / len(patterns)
+                score += regex_ratio * _DETO_REGEX_WEIGHT
+                if regex_failed:
+                    rationale_parts.append(f"Regex failed: {', '.join(regex_failed[:3])}")
+                else:
+                    rationale_parts.append("All regex patterns matched")
+        else:
+            score += _DETO_REGEX_WEIGHT
+
+        # JSON schema validation (zero-cost)
+        if test_case.expected.output and test_case.expected.output.json_schema:
+            schema_passed, schema_error = self._check_json_schema(
+                output, test_case.expected.output.json_schema
+            )
+            if schema_passed:
+                score += _DETO_JSON_SCHEMA_WEIGHT
+                rationale_parts.append("JSON schema valid")
+            else:
+                rationale_parts.append(f"JSON schema failed: {schema_error[:80]}")
+        else:
+            score += _DETO_JSON_SCHEMA_WEIGHT
 
         # Cap at _DETO_SCORE_CAP to signal this score is heuristic, not authoritative
         score = min(score, _DETO_SCORE_CAP)

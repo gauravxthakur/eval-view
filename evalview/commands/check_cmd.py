@@ -560,8 +560,10 @@ def _compute_check_exit_code(
         "Use --no-semantic-diff to opt out."
     ),
 )
+@click.option("--budget", type=float, default=None, help="Maximum total budget in dollars.")
+@click.option("--dry-run", "dry_run", is_flag=True, default=False, help="Preview test plan without executing.")
 @track_command("check")
-def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bool, report_path: Optional[str], semantic_diff: Optional[bool]):
+def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bool, report_path: Optional[str], semantic_diff: Optional[bool], budget: Optional[float], dry_run: bool):
     """Check current behavior against snapshot baseline.
 
     This command runs tests and compares them against your saved baselines,
@@ -577,7 +579,13 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
         evalview check --fail-on REGRESSION,TOOLS_CHANGED
         evalview check --strict                          # Fail on any change
         evalview check --no-semantic-diff                # Opt out of semantic diff
+        evalview check --dry-run                         # Preview plan, no API calls
+        evalview check --budget 0.50                     # Cap spend at $0.50
     """
+    if budget is not None and budget <= 0:
+        click.echo("Error: --budget must be a positive number.", err=True)
+        sys.exit(1)
+
     from evalview.core.loader import TestCaseLoader
     from evalview.core.golden import GoldenStore
     from evalview.core.project_state import ProjectStateStore
@@ -629,6 +637,17 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
     # Load config
     config = _load_config_if_exists()
 
+    # Apply judge config from config.yaml (env vars / CLI flags take priority)
+    if config:
+        judge_cfg = config.get_judge_config()
+        if judge_cfg:
+            import os
+            if judge_cfg.provider and not os.environ.get("EVAL_PROVIDER"):
+                os.environ["EVAL_PROVIDER"] = judge_cfg.provider
+            if judge_cfg.model and not os.environ.get("EVAL_MODEL"):
+                from evalview.core.llm_provider import resolve_model_alias
+                os.environ["EVAL_MODEL"] = resolve_model_alias(judge_cfg.model)
+
     # Resolve semantic diff: explicit flag > config file > auto-enable.
     # Priority (highest to lowest):
     #   1. --no-semantic-diff flag  → always off
@@ -666,6 +685,24 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
             )
         semantic_diff = False
 
+    # Dry-run mode — show plan and exit
+    if dry_run:
+        # Use the already-loaded golden list instead of per-test file reads
+        golden_names = set(goldens)
+        tests_with_baselines = sum(1 for tc in test_cases if tc.name in golden_names)
+        if not json_output:
+            console.print(f"  Tests:          {len(test_cases)}")
+            console.print(f"  With baselines: {tests_with_baselines}")
+            console.print(f"  API calls:      ~{len(test_cases)} (agent) + ~{len(test_cases)} (judge)")
+            if budget is not None:
+                console.print(f"  Budget:         ${budget:.2f}")
+            console.print()
+            console.print("[dim]No API calls were made. Remove --dry-run to execute.[/dim]\n")
+        else:
+            import json
+            print(json.dumps({"dry_run": True, "tests": len(test_cases), "with_baselines": tests_with_baselines}))
+        sys.exit(0)
+
     # Execute tests and compare against golden
     diffs, results, drift_tracker, golden_traces = _execute_check_tests(test_cases, config, json_output, semantic_diff)
 
@@ -677,6 +714,19 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
         has_regressions=(not analysis["all_passed"]),
         status="passed" if analysis["all_passed"] else "regression"
     )
+
+    # Cost summary
+    if results and not json_output:
+        total_cost = sum(r.trace.metrics.total_cost for r in results)
+        total_api_calls = sum(len(r.trace.steps) for r in results)
+        console.print(
+            f"[dim]💰 {len(results)} tests, {total_api_calls} API calls, "
+            f"${total_cost:.4f} total[/dim]\n"
+        )
+        if budget is not None and total_cost > budget:
+            console.print(
+                f"[red]⚠  Budget exceeded: ${total_cost:.4f} > ${budget:.2f} limit[/red]\n"
+            )
 
     # Display results (reuse drift_tracker instance to avoid re-reading history file)
     _display_check_results(

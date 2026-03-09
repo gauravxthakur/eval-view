@@ -102,8 +102,10 @@ def _display_no_agent_guide(endpoint: Optional[str] = None) -> None:
 @click.option("--contracts", is_flag=True, help="Check MCP contracts for interface drift before running tests. Fails fast if external servers changed.")
 @click.option("--save-golden", is_flag=True, default=False, help="Save results as golden baseline if all tests pass.")
 @click.option("--no-judge", is_flag=True, default=False, help="Skip LLM-as-judge evaluation. Uses deterministic scoring only (string matching + tool assertions). Scores capped at 75. No API key required.")
-@click.option("--judge-cache", is_flag=True, default=False, help="Cache LLM judge responses so identical outputs are not re-evaluated. Saves API costs in statistical mode (--runs).")
+@click.option("--judge-cache/--no-judge-cache", default=True, help="Cache LLM judge responses (enabled by default). Use --no-judge-cache to disable.")
 @click.option("--no-open", is_flag=True, default=False, help="Do not auto-open the HTML report in the browser after the run. Implied when CI=true.")
+@click.option("--budget", type=float, default=None, help="Maximum total budget in dollars. Stops execution if exceeded.")
+@click.option("--dry-run", "dry_run", is_flag=True, default=False, help="Preview test plan and estimate cost without executing. No API calls made.")
 @track_command("run", lambda **kw: {"adapter": kw.get("adapter") or "auto", "has_path": bool(kw.get("path"))})
 def run(
     path: Optional[str],
@@ -141,6 +143,8 @@ def run(
     no_judge: bool,
     judge_cache: bool,
     no_open: bool,
+    budget: Optional[float],
+    dry_run: bool,
 ) -> None:
     """Run test cases against the agent.
 
@@ -152,6 +156,10 @@ def run(
     if judge_model:
         from evalview.core.llm_provider import resolve_model_alias
         os.environ["EVAL_MODEL"] = resolve_model_alias(judge_model)
+
+    if budget is not None and budget <= 0:
+        click.echo("Error: --budget must be a positive number.", err=True)
+        raise SystemExit(1)
 
     if strict:
         fail_on = "REGRESSION,TOOLS_CHANGED,OUTPUT_CHANGED,CONTRACT_DRIFT"
@@ -167,6 +175,7 @@ def run(
         trace=trace, trace_out=trace_out, runs=runs, pass_rate=pass_rate,
         difficulty_filter=difficulty, contracts=contracts, save_golden=save_golden,
         no_judge=no_judge, judge_cache=judge_cache, no_open=no_open,
+        budget=budget, dry_run=dry_run,
     ))
 
 
@@ -204,8 +213,10 @@ async def _run_async(
     contracts: bool = False,
     save_golden: bool = False,
     no_judge: bool = False,
-    judge_cache: bool = False,
+    judge_cache: bool = True,
     no_open: bool = False,
+    budget: Optional[float] = None,
+    dry_run: bool = False,
 ) -> None:
     """Async implementation of the run command."""
     import fnmatch
@@ -570,6 +581,38 @@ async def _run_async(
 
     console.print(f"Found {len(test_cases)} test case(s)\n")
 
+    # ── Dry-run mode ──────────────────────────────────────────────────────────
+    if dry_run:
+        from rich.table import Table
+        table = Table(title="Dry Run — Test Plan", show_header=True, header_style="bold")
+        table.add_column("Test", style="cyan")
+        table.add_column("Adapter", style="dim")
+        table.add_column("Judge Calls", justify="right")
+
+        total_judge_calls = 0
+        for tc in test_cases:
+            tc_adapter = tc.adapter or adapter_type
+            judge_calls = 0 if no_judge else 1
+            total_judge_calls += judge_calls
+            table.add_row(tc.name, tc_adapter, str(judge_calls))
+
+        console.print(table)
+        console.print()
+        console.print(f"  Tests:       {len(test_cases)}")
+        console.print(f"  Agent calls: {len(test_cases)}")
+        console.print(f"  Judge calls: {total_judge_calls}")
+        if budget is not None:
+            console.print(f"  Budget:      ${budget:.2f}")
+        console.print()
+        console.print("[dim]No API calls were made. Remove --dry-run to execute.[/dim]\n")
+        return
+
+    # ── Budget cap from config ────────────────────────────────────────────────
+    if budget is None and config.get("budget"):
+        budget = float(config["budget"])
+    if budget is not None:
+        console.print(f"[dim]💰 Budget cap: ${budget:.2f}[/dim]\n")
+
     # ── Build executor options ────────────────────────────────────────────────
     statistical_evaluator = StatisticalEvaluator()
     stats_reporter = ConsoleReporter()
@@ -611,6 +654,19 @@ async def _run_async(
             console.print(
                 f"  [dim]Judge cache: {cs['hits']} hits / {cs['total']} lookups "
                 f"({cs['hit_rate']:.0%} hit rate)[/dim]"
+            )
+
+    # ── Cost summary ──────────────────────────────────────────────────────────
+    if results:
+        total_cost = sum(r.trace.metrics.total_cost for r in results)
+        total_api_calls = sum(len(r.trace.steps) for r in results)
+        console.print(
+            f"  [dim]💰 {len(results)} tests, {total_api_calls} API calls, "
+            f"${total_cost:.4f} total[/dim]"
+        )
+        if budget is not None and total_cost > budget:
+            console.print(
+                f"  [red]⚠  Budget exceeded: ${total_cost:.4f} > ${budget:.2f} limit[/red]"
             )
 
     # ── Summary / coverage / regression analysis ──────────────────────────────

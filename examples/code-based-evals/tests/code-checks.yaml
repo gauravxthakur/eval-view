@@ -1,0 +1,219 @@
+# =============================================================================
+# Zero-Cost Code-Based Evals — No API Key Required
+# =============================================================================
+#
+# These checks run locally with pure Python — regex, string matching, and
+# JSON Schema validation. They execute before any LLM-as-judge evaluation,
+# so they cost $0 and add near-zero latency.
+#
+# Use them to enforce structural requirements on agent output:
+#   - Format validation (prices, dates, emails, IDs)
+#   - Required/forbidden content (keywords, error strings)
+#   - Schema conformance (API responses, structured data)
+#
+# Combine multiple check types for layered validation — each one that
+# fails contributes to a lower score, giving you fine-grained control
+# without spending a cent.
+# =============================================================================
+
+
+# ---------------------------------------------------------------------------
+# 1. Regex patterns — structural format requirements
+# ---------------------------------------------------------------------------
+# regex_patterns are matched case-insensitively against the full output.
+# Every pattern must match at least once for the check to pass.
+
+- name: pricing-agent-format
+  description: >
+    Agent must return a product recommendation with properly formatted
+    prices and section headings. Validates structure, not content.
+  input:
+    query: "Recommend a laptop under $1500 for software development"
+  expected:
+    tools:
+      - search_products
+      - compare_prices
+    output:
+      # Regex patterns — each must match somewhere in the output ($0 per check)
+      regex_patterns:
+        - "\\$\\d{1,},?\\d*\\.\\d{2}"   # Price like $1,299.00 or $849.99
+        - "## .+"                         # At least one markdown H2 heading
+        - "\\*\\*.+\\*\\*"               # At least one bold term (product name)
+        - "(RAM|SSD|CPU|processor)"       # Must mention hardware specs
+  thresholds:
+    min_score: 70
+
+
+# ---------------------------------------------------------------------------
+# 2. JSON Schema — validate structured output
+# ---------------------------------------------------------------------------
+# json_schema uses standard JSON Schema (draft 2020-12). EvalView extracts
+# the first JSON object or array from the output and validates it.
+# No API calls, no LLM judge — just local jsonschema validation.
+
+- name: api-response-schema
+  description: >
+    Agent returns a structured JSON API response. Validate that it
+    conforms to the expected schema with required fields and types.
+  input:
+    query: "Look up order #ORD-2024-78312 and return the status as JSON"
+  expected:
+    tools:
+      - lookup_order
+    output:
+      # JSON Schema — validates the structure of JSON in the output ($0)
+      json_schema:
+        type: object
+        required:
+          - status
+          - data
+          - timestamp
+        properties:
+          status:
+            type: string
+            enum: ["success", "error", "pending"]
+          data:
+            type: object
+            required:
+              - order_id
+              - state
+              - total
+            properties:
+              order_id:
+                type: string
+              state:
+                type: string
+                enum: ["placed", "processing", "shipped", "delivered", "cancelled"]
+              total:
+                type: number
+                minimum: 0
+              items:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: ["name", "quantity"]
+          timestamp:
+            type: string
+          error:
+            type: string
+        additionalProperties: false
+  thresholds:
+    min_score: 80
+
+
+# ---------------------------------------------------------------------------
+# 3. Combined checks — layered validation at zero cost
+# ---------------------------------------------------------------------------
+# Stack contains + not_contains + regex_patterns + json_schema for
+# thorough validation without any LLM calls. Each failing check
+# reduces the score independently.
+
+- name: weather-report-full-validation
+  description: >
+    Full zero-cost validation stack. The weather agent must return a
+    structured JSON payload AND include human-readable commentary
+    with specific formatting requirements.
+  input:
+    query: "Give me a detailed weather report for San Francisco today"
+  expected:
+    tools:
+      - get_weather
+      - get_forecast
+    output:
+      # String inclusion — must mention these terms ($0)
+      contains:
+        - "San Francisco"
+        - "temperature"
+        - "humidity"
+
+      # String exclusion — must NOT contain these ($0)
+      not_contains:
+        - "ERROR"
+        - "undefined"
+        - "null"
+        - "API key"          # Agent must never leak credentials
+
+      # Regex patterns — format requirements ($0)
+      regex_patterns:
+        - "\\d{1,3}\\s*°?F"                    # Temperature like 68°F or 72 F
+        - "\\d{1,3}\\s*%"                       # Humidity percentage like 65%
+        - "(sun|cloud|rain|fog|wind|clear)"     # Weather condition keyword
+        - "\\d{1,2}:\\d{2}\\s*(AM|PM|am|pm)"   # Time format like 2:30 PM
+
+      # JSON Schema — structured data in the response ($0)
+      json_schema:
+        type: object
+        required:
+          - location
+          - current
+        properties:
+          location:
+            type: string
+          current:
+            type: object
+            required:
+              - temp_f
+              - humidity
+              - condition
+            properties:
+              temp_f:
+                type: number
+              humidity:
+                type: number
+                minimum: 0
+                maximum: 100
+              condition:
+                type: string
+              wind_mph:
+                type: number
+          forecast:
+            type: array
+            items:
+              type: object
+              required: ["day", "high", "low"]
+  thresholds:
+    min_score: 75
+    max_latency: 10000
+
+
+# ---------------------------------------------------------------------------
+# 4. Regex for format validation — emails, dates, IDs
+# ---------------------------------------------------------------------------
+# Use regex_patterns to enforce that agent output contains properly
+# formatted identifiers, dates, or contact information. Catches
+# hallucinated or malformed data before it reaches users.
+
+- name: contact-lookup-format
+  description: >
+    Agent looks up a customer contact. Output must contain properly
+    formatted email, phone number, date, and customer ID — not just
+    any text that looks vaguely right.
+  input:
+    query: "Look up the contact details for customer CUST-44021"
+  expected:
+    tools:
+      - search_customers
+    output:
+      contains:
+        - "CUST-44021"
+
+      not_contains:
+        - "not found"
+        - "no results"
+
+      # Regex patterns for strict format validation ($0 per check)
+      regex_patterns:
+        # Email: standard format (user@domain.tld)
+        - "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+
+        # Phone: US format like (555) 123-4567 or 555-123-4567
+        - "(\\(\\d{3}\\)\\s?|\\d{3}[-.]?)\\d{3}[-.]?\\d{4}"
+
+        # Date: ISO format YYYY-MM-DD (e.g., 2025-01-15)
+        - "\\d{4}-\\d{2}-\\d{2}"
+
+        # Customer ID: must match the CUST-NNNNN format
+        - "CUST-\\d{5}"
+  thresholds:
+    min_score: 70

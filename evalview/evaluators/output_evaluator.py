@@ -24,6 +24,12 @@ if TYPE_CHECKING:
 # Maximum length for agent output in LLM evaluation
 MAX_OUTPUT_LENGTH = 10000
 
+# Penalty points applied to LLM judge score for code-based check failures.
+# These reduce the LLM score proportionally so structural requirements are
+# enforced without extra API spend.
+_REGEX_FAIL_PENALTY: float = 15.0   # max penalty for regex pattern mismatches
+_SCHEMA_FAIL_PENALTY: float = 20.0  # flat penalty for JSON schema violation
+
 
 class OutputEvaluator:
     """Evaluates output quality using string checks and LLM-as-judge.
@@ -64,6 +70,10 @@ class OutputEvaluator:
         """
         Evaluate output quality.
 
+        Runs zero-cost code-based checks (regex, JSON schema) before the LLM
+        judge. If code-based checks fail, the LLM score is penalised so that
+        structural requirements are enforced without extra API spend.
+
         Args:
             test_case: Test case with expected output criteria
             trace: Execution trace with actual output
@@ -83,12 +93,42 @@ class OutputEvaluator:
             test_case.expected.output.not_contains if test_case.expected.output else [],
         )
 
+        # Code-based checks (zero-cost, run before LLM judge)
+        code_penalty = 0.0
+        code_notes: list = []
+
+        if test_case.expected.output:
+            from evalview.evaluators.evaluator import Evaluator
+
+            # Regex pattern checks
+            if test_case.expected.output.regex_patterns:
+                patterns = test_case.expected.output.regex_patterns
+                regex_passed, regex_failed = Evaluator._check_regex_patterns(output, patterns)
+                if regex_failed:
+                    fail_ratio = len(regex_failed) / len(patterns)
+                    code_penalty += fail_ratio * _REGEX_FAIL_PENALTY
+                    code_notes.append(f"regex failed: {', '.join(regex_failed[:3])}")
+
+            # JSON schema validation
+            if test_case.expected.output.json_schema:
+                schema_ok, schema_err = Evaluator._check_json_schema(
+                    output, test_case.expected.output.json_schema
+                )
+                if not schema_ok:
+                    code_penalty += _SCHEMA_FAIL_PENALTY
+                    code_notes.append(f"schema: {schema_err[:60]}")
+
         # LLM-as-judge evaluation
         llm_result = await self._llm_as_judge(test_case, trace)
 
+        final_score = max(0, llm_result["score"] - code_penalty)
+        rationale = llm_result["rationale"]
+        if code_notes:
+            rationale = f"{rationale} [code checks: {'; '.join(code_notes)}]"
+
         return OutputEvaluation(
-            score=llm_result["score"],
-            rationale=llm_result["rationale"],
+            score=final_score,
+            rationale=rationale,
             contains_checks=contains_checks,
             not_contains_checks=not_contains_checks,
         )

@@ -1,0 +1,6 @@
+# EvalView config for code-based evals example
+# These tests demonstrate zero-cost checks that need no API key.
+
+adapter: http
+endpoint: http://localhost:8000/invoke
+timeout: 30.0
