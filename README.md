@@ -16,7 +16,7 @@
 -->
 
 <p align="center">
-  <img src="assets/logo.png" alt="EvalView" width="450">
+  <img src="assets/logo.png" alt="EvalView" width="350">
   <br>
   <strong>Regression testing for AI agents.</strong><br>
   Snapshot your agent's behavior. Detect when it breaks. Block regressions in CI.
