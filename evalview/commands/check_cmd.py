@@ -770,8 +770,8 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
             writer.writerow(["test_name", "status", "score", "baseline_score", "diff", "timestamp"])
             for name, diff in diffs:
                 current_result = result_lookup.get(name)
-                current_score = current_result.score if current_result else ""
-                baseline_score = (current_score - diff.score_diff) if current_result and diff.score_diff is not None else ""
+                current_score: Any = current_result.score if current_result else ""
+                baseline_score: Any = (current_result.score - diff.score_diff) if current_result and diff.score_diff is not None else ""
                 score_diff = diff.score_diff if diff.score_diff is not None else ""
                 writer.writerow([
                     name,
