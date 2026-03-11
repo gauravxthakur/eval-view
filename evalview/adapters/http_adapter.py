@@ -19,6 +19,22 @@ from evalview.core.tracing import Tracer
 logger = logging.getLogger(__name__)
 
 
+class AgentConnectionError(Exception):
+    """Raised when connection to agent endpoint fails.
+
+    This exception provides user-friendly error messages for common connection
+    issues like connection refused, timeout, DNS resolution failure, and protocol errors.
+    """
+
+    def __init__(self, message: str, endpoint: str, error_type: str = "connection"):
+        self.endpoint = endpoint
+        self.error_type = error_type
+        super().__init__(message)
+
+    def __str__(self) -> str:
+        return f"[{self.error_type.upper()}] {self.endpoint}: {self.args[0]}"
+
+
 class HTTPAdapter(AgentAdapter):
     """Generic HTTP adapter for REST API agents.
 
@@ -72,70 +88,118 @@ class HTTPAdapter(AgentAdapter):
         # Initialize tracer
         tracer = Tracer()
 
-        async with tracer.start_span_async("HTTP Agent", SpanKind.AGENT):
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                api_start = datetime.now()
-                response = await client.post(
-                    self.endpoint,
-                    json={
-                        "query": query,
-                        "context": context,
-                        "enable_tracing": True,
-                    },
-                    headers={
-                        "Content-Type": "application/json",
-                        **self.headers,
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-                api_end = datetime.now()
-                api_latency = (api_end - api_start).total_seconds() * 1000
+        try:
+            async with tracer.start_span_async("HTTP Agent", SpanKind.AGENT):
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    api_start = datetime.now()
+                    response = await client.post(
+                        self.endpoint,
+                        json={
+                            "query": query,
+                            "context": context,
+                            "enable_tracing": True,
+                        },
+                        headers={
+                            "Content-Type": "application/json",
+                            **self.headers,
+                        },
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    api_end = datetime.now()
+                    api_latency = (api_end - api_start).total_seconds() * 1000
+        except httpx.ConnectError as e:
+            # Connection refused or DNS resolution failure
+            error_msg = str(e)
+            if "Name or service not known" in error_msg or "nodename nor servname" in error_msg:
+                raise AgentConnectionError(
+                    f"DNS解析失败: 无法解析主机名。请检查endpoint URL是否正确。",
+                    endpoint=self.endpoint,
+                    error_type="dns"
+                ) from None
+            else:
+                raise AgentConnectionError(
+                    f"连接被拒绝: 无法连接到服务器。请确认服务正在运行且URL正确。",
+                    endpoint=self.endpoint,
+                    error_type="refused"
+                ) from None
 
-            # Record the API call as an LLM span if model info is available
-            model_name = self.model_config.get("name", "unknown")
-            if model_name != "unknown":
-                tokens_data = data.get("tokens") or data.get("metadata", {}).get("tokens", {})
-                input_tokens = 0
-                output_tokens = 0
-                if isinstance(tokens_data, dict):
-                    input_tokens = tokens_data.get("input", tokens_data.get("input_tokens", 0))
-                    output_tokens = tokens_data.get("output", tokens_data.get("output_tokens", 0))
+        except httpx.TimeoutException as e:
+            # Request timeout
+            raise AgentConnectionError(
+                f"请求超时: 服务器在 {self.timeout} 秒内未响应。请稍后重试或检查服务状态。",
+                endpoint=self.endpoint,
+                error_type="timeout"
+            ) from None
 
-                tracer.record_llm_call(
-                    model=model_name,
-                    provider="http",
-                    prompt=query,
-                    prompt_tokens=input_tokens,
-                    completion_tokens=output_tokens,
-                    cost=data.get("cost", 0.0),
-                    duration_ms=api_latency,
-                )
+        except httpx.RemoteProtocolError as e:
+            # Protocol error
+            raise AgentConnectionError(
+                f"协议错误: 与服务器的通信出现异常。请检查API端点是否正确。",
+                endpoint=self.endpoint,
+                error_type="protocol"
+            ) from None
 
-            # Record tool calls from response
-            steps_data = data.get("steps") or data.get("tool_calls") or []
-            for step_data in steps_data:
-                tool_name = (
-                    step_data.get("tool")
-                    or step_data.get("tool_name")
-                    or step_data.get("name")
-                    or "unknown"
-                )
-                parameters = (
-                    step_data.get("parameters")
-                    or step_data.get("params")
-                    or step_data.get("arguments")
-                    or {}
-                )
-                output = step_data.get("output") or step_data.get("result")
+        except httpx.StreamError as e:
+            # Stream error (e.g., connection closed unexpectedly)
+            raise AgentConnectionError(
+                f"连接中断: 与服务器的连接意外关闭。请检查网络连接后重试。",
+                endpoint=self.endpoint,
+                error_type="stream"
+            ) from None
 
-                tracer.record_tool_call(
-                    tool_name=tool_name,
-                    parameters=parameters,
-                    result=output,
-                    error=step_data.get("error"),
-                    duration_ms=step_data.get("latency", 0.0),
-                )
+        except httpx.HTTPError as e:
+            # Generic HTTP errors - wrap in friendly message
+            raise AgentConnectionError(
+                f"HTTP错误: {str(e)}",
+                endpoint=self.endpoint,
+                error_type="http"
+            ) from None
+
+        # Record the API call as an LLM span if model info is available
+        model_name = self.model_config.get("name", "unknown")
+        if model_name != "unknown":
+            tokens_data = data.get("tokens") or data.get("metadata", {}).get("tokens", {})
+            input_tokens = 0
+            output_tokens = 0
+            if isinstance(tokens_data, dict):
+                input_tokens = tokens_data.get("input", tokens_data.get("input_tokens", 0))
+                output_tokens = tokens_data.get("output", tokens_data.get("output_tokens", 0))
+
+            tracer.record_llm_call(
+                model=model_name,
+                provider="http",
+                prompt=query,
+                prompt_tokens=input_tokens,
+                completion_tokens=output_tokens,
+                cost=data.get("cost", 0.0),
+                duration_ms=api_latency,
+            )
+
+        # Record tool calls from response
+        steps_data = data.get("steps") or data.get("tool_calls") or []
+        for step_data in steps_data:
+            tool_name = (
+                step_data.get("tool")
+                or step_data.get("tool_name")
+                or step_data.get("name")
+                or "unknown"
+            )
+            parameters = (
+                step_data.get("parameters")
+                or step_data.get("params")
+                or step_data.get("arguments")
+                or {}
+            )
+            output = step_data.get("output") or step_data.get("result")
+
+            tracer.record_tool_call(
+                tool_name=tool_name,
+                parameters=parameters,
+                result=output,
+                error=step_data.get("error"),
+                duration_ms=step_data.get("latency", 0.0),
+            )
 
         end_time = datetime.now()
 
