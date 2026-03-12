@@ -2724,9 +2724,7 @@ async def run_demo(
         console.print("  [red]❌ This would fail CI[/red]")
         console.print("━" * 68)
 
-    # =========================================================================
-    # DEMO 1: "3am panic" - Agent broke, what changed? (verbose)
-    # =========================================================================
+    # --- DEMO 1: "3am panic" - Agent broke, what changed? (verbose) ---
     if style == 1:
         show_user_input("My agent broke in production. Users are complaining. What changed since yesterday?")
         show_thinking(0.8)
@@ -2827,9 +2825,7 @@ async def run_demo(
         console.print()
         console.print("[dim]⭐ Star if this helped → github.com/hidai25/eval-view[/dim]\n")
 
-    # =========================================================================
-    # DEMO 2: "LangGraph agent" - Real framework, verbose output
-    # =========================================================================
+    # --- DEMO 2: "LangGraph agent" - Real framework, verbose output ---
     elif style == 2:
         show_user_input("test my langgraph agent")
         show_thinking(0.5)
@@ -2923,9 +2919,7 @@ async def run_demo(
         console.print()
         console.print("[dim]⭐ Star if this helped → github.com/hidai25/eval-view[/dim]\n")
 
-    # =========================================================================
-    # DEMO 3: "Cost explosion" - $847 bill shock (verbose, cost-focused)
-    # =========================================================================
+    # --- DEMO 3: "Cost explosion" - $847 bill shock (verbose, cost-focused) ---
     elif style == 3:
         show_user_input("My OpenAI bill is $847. Last month it was $12. What happened?")
         show_thinking(0.9)
@@ -3031,9 +3025,7 @@ async def run_demo(
         console.print()
         console.print("[dim]⭐ Star if this helped → github.com/hidai25/eval-view[/dim]\n")
 
-    # =========================================================================
-    # DEMO 4: "Chat UI" - Showcase the interactive chat experience
-    # =========================================================================
+    # --- DEMO 4: "Chat UI" - Showcase the interactive chat experience ---
     elif style == 4:
         term_width = console.width or 80
 

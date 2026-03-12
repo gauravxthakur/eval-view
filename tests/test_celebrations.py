@@ -6,13 +6,13 @@ import pytest
 
 from evalview.core.celebrations import (
     Celebrations,
-    STREAK_MILESTONE_START,
-    STREAK_MILESTONE_SMALL,
-    STREAK_MILESTONE_MEDIUM,
-    STREAK_MILESTONE_LARGE,
-    STREAK_MILESTONE_LEGENDARY,
-    STREAK_MILESTONE_INCREDIBLE,
-    STREAK_BREAK_EMPATHY_THRESHOLD,
+    STREAK_1,
+    STREAK_3,
+    STREAK_5,
+    STREAK_10,
+    STREAK_25,
+    STREAK_50,
+    STREAK_BREAK_THRESHOLD,
     BANNER_WIDTH
 )
 from evalview.core.project_state import ProjectState
@@ -23,30 +23,30 @@ class TestConstants:
 
     def test_milestone_constants_defined(self):
         """Test that all milestone constants exist and are positive."""
-        assert STREAK_MILESTONE_START == 1
-        assert STREAK_MILESTONE_SMALL == 3
-        assert STREAK_MILESTONE_MEDIUM == 5
-        assert STREAK_MILESTONE_LARGE == 10
-        assert STREAK_MILESTONE_LEGENDARY == 25
-        assert STREAK_MILESTONE_INCREDIBLE == 50
+        assert STREAK_1 == 1
+        assert STREAK_3 == 3
+        assert STREAK_5 == 5
+        assert STREAK_10 == 10
+        assert STREAK_25 == 25
+        assert STREAK_50 == 50
 
     def test_milestone_progression(self):
         """Test that milestones are in ascending order."""
         milestones = [
-            STREAK_MILESTONE_START,
-            STREAK_MILESTONE_SMALL,
-            STREAK_MILESTONE_MEDIUM,
-            STREAK_MILESTONE_LARGE,
-            STREAK_MILESTONE_LEGENDARY,
-            STREAK_MILESTONE_INCREDIBLE
+            STREAK_1,
+            STREAK_3,
+            STREAK_5,
+            STREAK_10,
+            STREAK_25,
+            STREAK_50
         ]
 
         assert milestones == sorted(milestones)
 
     def test_empathy_threshold_reasonable(self):
         """Test that empathy threshold is reasonable."""
-        assert STREAK_BREAK_EMPATHY_THRESHOLD >= 3
-        assert STREAK_BREAK_EMPATHY_THRESHOLD <= 10
+        assert STREAK_BREAK_THRESHOLD >= 3
+        assert STREAK_BREAK_THRESHOLD <= 10
 
     def test_banner_width_reasonable(self):
         """Test that banner width fits terminal."""
@@ -224,12 +224,12 @@ class TestStreakBroken:
     @patch('sys.stdout', new_callable=io.StringIO)
     def test_streak_break_at_threshold_boundary(self, mock_stdout):
         """Test behavior at empathy threshold boundary."""
-        state = ProjectState(current_streak=STREAK_BREAK_EMPATHY_THRESHOLD)
+        state = ProjectState(current_streak=STREAK_BREAK_THRESHOLD)
 
         Celebrations.streak_broken(state, "regression")
 
         output = mock_stdout.getvalue()
-        assert str(STREAK_BREAK_EMPATHY_THRESHOLD) in output
+        assert str(STREAK_BREAK_THRESHOLD) in output
 
 
 class TestHealthSummary:

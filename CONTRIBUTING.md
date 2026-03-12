@@ -82,25 +82,20 @@ make pip-check       # Run all checks
 
 ```
 evalview/
-├── core/           # Core types and utilities
-│   ├── types.py    # Pydantic models
-│   ├── loader.py   # Test case loader
-│   └── pricing.py  # Cost calculation
-├── adapters/       # Agent communication
-│   ├── base.py     # Abstract adapter
-│   ├── http_adapter.py
-│   └── tapescope_adapter.py
-├── evaluators/     # Evaluation logic
-│   ├── evaluator.py           # Main orchestrator
-│   ├── tool_call_evaluator.py
-│   ├── sequence_evaluator.py
-│   ├── output_evaluator.py
-│   ├── cost_evaluator.py
-│   └── latency_evaluator.py
-├── reporters/      # Result formatting
-│   ├── json_reporter.py
-│   └── console_reporter.py
-└── cli.py          # CLI entry point
+├── cli.py              # CLI entry point (Click)
+├── core/               # Types, diff engine, golden store, state tracking,
+│                       #   config, security, pricing, celebrations, messages
+├── adapters/           # 14 framework adapters: http, anthropic, openai,
+│                       #   langgraph, crewai, cohere, mistral, ollama,
+│                       #   huggingface, goose, mcp, streaming, tapescope
+├── evaluators/         # 10 evaluators: tool_call, sequence, output, cost,
+│                       #   latency, safety, hallucination, pii, statistical
+├── reporters/          # Console, JSON, HTML, trace reporters
+├── commands/           # Subcommand modules (snapshot, check, monitor, etc.)
+├── skills/             # Skill validation and testing framework
+├── cloud/              # Cloud sync integration
+├── ci/                 # CI helpers
+└── telemetry/          # Anonymous usage telemetry
 ```
 
 ## Adding a New Evaluator
@@ -668,4 +663,4 @@ def my_function(arg1: str, arg2: int) -> Dict[str, Any]:
 
 ---
 
-**Thank you for contributing to EvalView!** 🎉
+Thanks for helping out. If anything in this guide is unclear, open an issue.

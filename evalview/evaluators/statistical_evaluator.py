@@ -385,7 +385,7 @@ class StatisticalEvaluator:
                 f"CI lower bound {score_stats.confidence_interval_lower:.2f} below min_score {min_score}"
             )
 
-        # Compute industry-standard reliability metrics
+        # Compute pass@k and pass^k reliability metrics
         # pass@k: probability of at least one success in k trials
         # Formula: 1 - (1 - p)^k where p = pass_rate, k = total_runs
         pass_at_k = 1 - ((1 - pass_rate) ** total_runs) if pass_rate < 1 else 1.0

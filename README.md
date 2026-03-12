@@ -1,19 +1,5 @@
 <!-- mcp-name: io.github.hidai25/evalview-mcp -->
-<!--
-  EvalView - Open-source AI agent testing and regression detection framework
-  Keywords: AI agent testing, LLM testing, agent evaluation, regression testing for AI,
-  golden baseline testing, LangGraph testing, CrewAI testing, OpenAI agent testing,
-  AI CI/CD, pytest for AI agents, SKILL.md validation, MCP contract testing,
-  non-deterministic testing, LLM evaluation, agent regression detection,
-  provider-agnostic LLM testing, OpenAI-compatible eval, DeepSeek testing,
-  evalview add templates, evalview init wizard, first agent test,
-  agentic AI testing, multi-agent testing, autonomous agent testing,
-  LLM CI/CD, LLM hallucination detection, agent reliability, agent degradation,
-  agent behavior testing, golden file testing Python, vibe coding regression,
-  behavior-driven testing AI, Anthropic Claude agent testing, GPT agent testing,
-  agentic workflow testing, agent quality assurance, test LLM agents Python,
-  detect prompt regression, AI agent observability alternative, open source eval framework
--->
+<!-- keywords: AI agent testing, regression detection, golden baselines -->
 
 <p align="center">
   <img src="assets/logo.png" alt="EvalView" width="350">
@@ -88,10 +74,8 @@ evalview monitor                                         # 4. Watch continuously
 
 Works with **LangGraph, CrewAI, OpenAI, Claude, Mistral, HuggingFace, Ollama, and any HTTP API**.
 
-**Ready to try it?**
-
 ```bash
-pip install evalview && evalview demo   # See regression detection live, ~30 seconds
+pip install evalview && evalview demo   # ~30 seconds, no API key needed
 ```
 
 [Full Quick Start guide →](#quick-start)
@@ -114,13 +98,14 @@ Specifically, EvalView diffs the full agent trajectory — tool calls, parameter
 
 |  | LangSmith | Braintrust | Promptfoo | **EvalView** |
 |---|:---:|:---:|:---:|:---:|
-| Tool call + parameter diffing | No | No | No | **Yes** |
-| Golden baseline regression detection | No | Manual | No | **Yes** |
+| **Primary focus** | Observability | Scoring | Prompt comparison | **Regression detection** |
+| Tool call + parameter diffing | — | — | — | **Yes** |
+| Golden baseline regression | — | Manual | — | **Automatic** |
 | Works without API keys | No | No | Partial | **Yes** |
-| LLM-as-judge with pass@k | No | Yes | Yes | **Yes** |
-| Cost + latency tracking per test | No | No | No | **Yes** |
-| Continuous monitoring + Slack alerts | No | No | No | **Yes** |
-| Agent framework adapters | LangChain only | Generic | Generic | **7 frameworks + any HTTP** |
+| LLM-as-judge with pass@k | — | Yes | Yes | **Yes** |
+| Production monitoring | Tracing | — | — | **Check loop + Slack** |
+| Prompt/output experimentation | — | **Yes** | **Yes** | Basic |
+| Production tracing & dashboards | **Yes** | **Yes** | — | — |
 
 ---
 
@@ -132,18 +117,6 @@ Specifically, EvalView diffs the full agent trajectory — tool calls, parameter
 | ⚠️ **TOOLS_CHANGED** | Different tools called | Review the diff |
 | ⚠️ **OUTPUT_CHANGED** | Same tools, output shifted | Review the diff |
 | ❌ **REGRESSION** | Score dropped significantly | Fix before shipping |
-
----
-
-## Who Is EvalView For?
-
-- **Anyone building AI agents** — know instantly if a prompt tweak, model swap, or tool change broke something
-- **AI/ML engineers running CI/CD** — a deterministic pass/fail signal that blocks regressions before production
-- **Teams shipping multi-agent systems** — catch cascading behavior changes before they reach downstream agents
-- **Skill and workflow authors** — validate that automation does exactly what it's supposed to, every time
-- **Developers using local models** — fully offline, zero API-key regression detection with Ollama or any local LLM
-
-If you run `evalview snapshot` today and `evalview check` after every change, you're using EvalView correctly.
 
 ---
 
@@ -1036,41 +1009,20 @@ safety-refusal              95         95         ✓  same
 
 | Feature | Description | Docs |
 |---------|-------------|------|
-| **Multi-Turn Testing** | Test full conversations: sequential turns with injected history, per-turn `expected` assertions, merged cost + latency | [Docs](#multi-turn-conversation-tests) |
-| **A/B Endpoint Comparison** | `evalview compare --v1 <url> --v2 <url>` — run the same suite against two endpoints, get a per-test improved/degraded/same verdict table | [Docs](#ab-endpoint-comparison) |
-| **`forbidden_tools`** | Declare tools that must never be called — hard-fail on any violation, score 0, no partial credit | [Docs](#safety-contracts-trace-replay--judge-caching) |
-| **HTML Trace Replay** | Step-by-step replay of every LLM call and tool invocation — exact prompt, completion, tokens, params | [Docs](#html-trace-replay--full-forensic-debugging) |
-| **LLM Judge Caching** | Cache judge responses in statistical mode — ~80% fewer API calls, stored in `.evalview/.judge_cache.db` | [Docs](#llm-judge-caching--80-cost-reduction-in-statistical-mode) |
-| **Cloud Baseline Sync** | `evalview login` — golden baselines sync to cloud automatically after every snapshot; new teammates pull them before every check | [Docs](#evalview-cloud--team-baseline-sync) |
-| **Snapshot/Check Workflow** | Simple `snapshot` then `check` commands for regression detection | [Docs](docs/GOLDEN_TRACES.md) |
-| **Silent Model Update Detection** | Captures model version at snapshot time; alerts when provider silently swaps the model | [Docs](#detecting-silent-model-updates) |
-| **Gradual Drift Detection** | OLS regression over 10-check window catches slow similarity decline that single-threshold checks miss | [Docs](#gradual-drift-detection) |
-| **Semantic Similarity** | Auto-enabled when `OPENAI_API_KEY` is set — scores outputs by meaning, not wording. One-time notice on first run. Opt out with `--no-semantic-diff` or `semantic_diff_enabled: false` | [Docs](#semantic-similarity) |
-| **Auto-Open Visual Reports** | Every `evalview run` opens an interactive HTML report — KPI cards, Mermaid trace diagrams, diffs, cost-per-query. `--no-open` for CI. | [Docs](#visual-reports) |
-| **Git Hook Integration** | `evalview install-hooks` — injects `evalview check` into pre-push (or pre-commit). Automatic regression blocking with zero CI config. | [Docs](#cicd-integration) |
-| **Claude Code MCP** | 8 tools — run checks, generate tests, test skills, generate visual reports inline | [Docs](#claude-code-integration-mcp) |
-| **Streak Tracking** | Habit-forming celebrations for consecutive clean checks | [Docs](docs/GOLDEN_TRACES.md) |
-| **Multi-Reference Goldens** | Save up to 5 variants per test for non-deterministic agents | [Docs](docs/GOLDEN_TRACES.md) |
-| **Chat Mode** | AI assistant: `/run`, `/test`, `/compare` | [Docs](docs/CHAT_MODE.md) |
-| **Tool Categories** | Match by intent, not exact tool names | [Docs](docs/TOOL_CATEGORIES.md) |
-| **Statistical Mode (pass@k)** | Handle flaky LLMs with `--runs N` and pass@k/pass^k metrics | [Docs](docs/STATISTICAL_MODE.md) |
-| **Cost & Latency Thresholds** | Automatic threshold enforcement per test | [Docs](docs/EVALUATION_METRICS.md) |
-| **Interactive HTML Reports** | Plotly charts, Mermaid sequence diagrams, glassmorphism theme | [Docs](docs/CLI_REFERENCE.md) |
-| **Test Generation** | Generate 100+ test variations from 1 seed test | [Docs](docs/TEST_GENERATION.md) |
-| **Suite Types** | Separate capability vs regression tests | [Docs](docs/SUITE_TYPES.md) |
-| **Difficulty Levels** | Filter by `--difficulty hard`, benchmark by tier | [Docs](docs/STATISTICAL_MODE.md) |
-| **Behavior Coverage** | Track tasks, tools, paths tested | [Docs](docs/BEHAVIOR_COVERAGE.md) |
-| **MCP Contract Testing** | Detect when external MCP servers change their interface | [Docs](docs/MCP_CONTRACTS.md) |
-| **Skills Testing** | Validate and test Claude Code / Codex SKILL.md workflows | [Docs](docs/SKILLS_TESTING.md) |
-| **Provider-Agnostic Skill Tests** | Run skill tests against Anthropic, OpenAI, DeepSeek, or any OpenAI-compatible API | [Docs](docs/SKILLS_TESTING.md#provider-agnostic-api-keys) |
-| **Test Pattern Library** | 15 ready-made YAML patterns — copy to your project with `evalview add` | [Docs](#skills-testing-setup-wizard--15-test-templates) |
-| **Personalized Init Wizard** | `evalview init --wizard` — generates a config + first test tailored to your agent | [Docs](#skills-testing-setup-wizard--15-test-templates) |
-| **Pytest Plugin** | `evalview_check` fixture for regression assertions inside standard pytest suites | [Docs](#pytest-plugin) |
-| **Programmatic API** | `run_single_test` / `check_single_test` for notebook and custom CI integration | [Docs](#programmatic-api) |
-| **Production Log Import** | `evalview import prod.jsonl` — auto-detect JSONL/OpenAI/EvalView formats, generate test YAMLs from real traffic | [Docs](#production-log-import) |
-| **Benchmark Packs** | 30 portable tests across RAG, coding, support, research — comparable scores per domain and difficulty tier | [Docs](#benchmark-packs) |
-| **Trajectory Diff (`evalview replay`)** | Step-by-step terminal + side-by-side HTML diff of baseline vs. current agent path — pinpoints where behavior diverged | [Docs](#evalview-replay--trajectory-diff-debugging) |
-| **Production Monitoring** | `evalview monitor` — continuous regression checks with Slack alerts, recovery notifications, JSONL history export | [Docs](#production-monitoring) |
+| **Multi-Turn Testing** | Sequential turns with context injection, per-turn assertions | [Docs](#multi-turn-conversation-tests) |
+| **A/B Endpoint Comparison** | `evalview compare --v1 <url> --v2 <url>` with per-test verdict | [Docs](#ab-endpoint-comparison) |
+| **`forbidden_tools`** | Hard-fail safety contracts — score 0 on any violation | [Docs](#safety-contracts-trace-replay--judge-caching) |
+| **HTML Trace Replay** | Step-by-step LLM call + tool replay with exact prompts | [Docs](#html-trace-replay--full-forensic-debugging) |
+| **Multi-Reference Goldens** | Up to 5 variants per test for non-deterministic agents | [Docs](docs/GOLDEN_TRACES.md) |
+| **Semantic Similarity** | Embedding-based output comparison, auto-enabled with `OPENAI_API_KEY` | [Docs](#semantic-similarity) |
+| **Statistical Mode (pass@k)** | Run N times, require a pass rate — handles flaky LLMs | [Docs](docs/STATISTICAL_MODE.md) |
+| **Pytest Plugin** | `evalview_check` fixture for regression assertions in standard pytest | [Docs](#pytest-plugin) |
+| **Production Monitoring** | `evalview monitor` with Slack alerts and JSONL history | [Docs](#production-monitoring) |
+| **Claude Code MCP** | 8 tools — checks, snapshots, test generation inline | [Docs](#claude-code-integration-mcp) |
+| **Git Hooks** | `evalview install-hooks` — pre-push regression blocking, zero CI config | [Docs](#cicd-integration) |
+| **Production Log Import** | `evalview import prod.jsonl` — generate tests from real traffic | [Docs](#production-log-import) |
+
+See the [documentation](#documentation) for LLM judge caching, cloud baseline sync, drift detection, model version tracking, benchmark packs, and more.
 
 ---
 
@@ -1282,14 +1234,6 @@ Yes. EvalView is Apache 2.0 open source. Cloud baseline sync (`evalview login`) 
 ### Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=hidai25/eval-view&type=Date)](https://star-history.com/#hidai25/eval-view&Date)
-
----
-
-<p align="center">
-  <b>EvalView — The open-source testing framework for AI agents.</b><br>
-  Regression testing, golden baselines, CI/CD integration. Works with LangGraph, CrewAI, OpenAI, Claude, and any HTTP API.<br><br>
-  <a href="#quick-start">Get started</a> | <a href="docs/GETTING_STARTED.md">Full guide</a> | <a href="docs/FAQ.md">FAQ</a>
-</p>
 
 ---
 

@@ -22,19 +22,10 @@ class ConsoleReporter:
     """Generates formatted console output for evaluation results."""
 
     def __init__(self):
-        """Initialize the console reporter."""
         self.console = Console()
 
     def _format_value(self, value: Any, max_length: int = 60) -> str:
-        """Format a value for display in the console.
-
-        Args:
-            value: Value to format.
-            max_length: Maximum length of the formatted string before truncation.
-
-        Returns:
-            A string representation of the value suitable for console display.
-        """
+        """Format a value for display, truncating at max_length."""
         if value is None:
             return "[dim]null[/dim]"
         if isinstance(value, dict):
@@ -999,9 +990,7 @@ class ConsoleReporter:
 
         self.console.print()
 
-    # =========================================================================
-    # Statistical/Variance Reporting
-    # =========================================================================
+    # --- Statistical/Variance Reporting ---
 
     def print_statistical_summary(
         self,
@@ -1026,7 +1015,7 @@ class ConsoleReporter:
         self.console.print(f"[bold {status_color}]{status_text}[/bold {status_color}]")
         self.console.print()
 
-        # Run summary panel with industry-standard metrics
+        # Run summary panel
         pass_rate_color = "green" if result.pass_rate >= 0.8 else "yellow" if result.pass_rate >= 0.5 else "red"
 
         # pass@k interpretation

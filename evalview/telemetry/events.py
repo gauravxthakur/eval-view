@@ -155,9 +155,7 @@ class SessionEvent(BaseEvent):
     commands_run: int = 1        # Number of commands in this session
 
 
-# ============================================================================
-# Skill Test Generation Events
-# ============================================================================
+# --- Skill Test Generation Events ---
 
 
 @dataclass

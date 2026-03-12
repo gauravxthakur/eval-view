@@ -8,20 +8,14 @@ from pydantic import BaseModel, Field, field_validator, model_validator, Validat
 import re
 
 
-# ============================================================================
-# Enums and Literal Types
-# ============================================================================
+# --- Enums and Literal Types ---
 
-# Difficulty levels for test cases - enables filtering, reporting, and benchmarking
-# Follows industry standard 5-tier difficulty classification
 Difficulty = Literal["trivial", "easy", "medium", "hard", "expert"]
 
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# Test Case Types
-# ============================================================================
+# --- Test Case Types ---
 
 
 class TestInput(BaseModel):
@@ -290,9 +284,7 @@ class TestCase(BaseModel):
             )
         return v
 
-# ============================================================================
-# Execution Trace Types
-# ============================================================================
+# --- Execution Trace Types ---
 
 
 class TokenUsage(BaseModel):
@@ -394,9 +386,7 @@ class ExecutionMetrics(BaseModel):
         )
 
 
-# ============================================================================
-# Tracing Types (OpenTelemetry-aligned)
-# ============================================================================
+# --- Tracing Types (OpenTelemetry-aligned) ---
 
 
 class SpanKind(str, Enum):
@@ -538,9 +528,7 @@ class ExecutionTrace(BaseModel):
         return v
 
 
-# ============================================================================
-# Evaluation Result Types
-# ============================================================================
+# --- Evaluation Result Types ---
 
 
 class CategoryResult(BaseModel):
@@ -735,9 +723,7 @@ class EvaluationResult(BaseModel):
     difficulty: Optional[Difficulty] = None
 
 
-# ============================================================================
-# Statistical/Variance Evaluation Types
-# ============================================================================
+# --- Statistical/Variance Evaluation Types ---
 
 
 class StatisticalMetrics(BaseModel):

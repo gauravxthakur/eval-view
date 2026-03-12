@@ -365,9 +365,7 @@ class SkillAgentTestSuite(BaseModel):
         return v
 
 
-# ============================================================================
-# Trace Types
-# ============================================================================
+# --- Trace Types ---
 
 
 class TraceEventType(str, Enum):
@@ -457,9 +455,7 @@ class SkillAgentTrace(BaseModel):
         return len(self.errors) > 0
 
 
-# ============================================================================
-# Evaluation Result Types
-# ============================================================================
+# --- Evaluation Result Types ---
 
 
 class DeterministicCheckResult(BaseModel):

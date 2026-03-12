@@ -10,43 +10,13 @@ We release patches for security vulnerabilities in the following versions:
 
 ## Reporting a Vulnerability
 
-We take the security of EvalView seriously. If you believe you have found a security vulnerability, please report it to us as described below.
+If you find a security vulnerability, **do not open a public issue.**
 
-### How to Report
+Report via [GitHub Security Advisory](https://github.com/hidai25/eval-view/security/advisories/new) or email security@evalview.com.
 
-**Please do not report security vulnerabilities through public GitHub issues.**
+Include: vulnerability type, affected file paths, reproduction steps, and impact assessment. Proof-of-concept code helps if you have it.
 
-Instead, please report them via one of the following methods:
-
-1. **GitHub Security Advisories** (Recommended): Use the [Security Advisory](https://github.com/hidai25/eval-view/security/advisories/new) feature
-2. **Email**: Send an email to security@evalview.com
-
-### What to Include
-
-Please include the following information in your report:
-
-- Type of vulnerability
-- Full paths of source file(s) related to the vulnerability
-- Location of the affected source code (tag/branch/commit or direct URL)
-- Step-by-step instructions to reproduce the issue
-- Proof-of-concept or exploit code (if possible)
-- Impact of the vulnerability, including how an attacker might exploit it
-
-### Response Timeline
-
-- **Initial Response**: Within 48 hours of receiving your report
-- **Status Update**: Within 5 business days with an assessment of the report
-- **Resolution**: We aim to release patches for verified vulnerabilities as quickly as possible, typically within 30 days
-
-### What to Expect
-
-After you submit a report, we will:
-
-1. Confirm receipt of your vulnerability report
-2. Assess the impact and severity of the vulnerability
-3. Work on a fix and coordinate a release timeline
-4. Keep you informed of our progress
-5. Credit you in the security advisory (unless you prefer to remain anonymous)
+**Response timeline:** initial response within 48 hours, assessment within 5 business days, patch typically within 30 days.
 
 ## Security Best Practices for Users
 
@@ -167,18 +137,6 @@ We will disclose security vulnerabilities through:
 2. **Release Notes**: Documented in CHANGELOG.md
 3. **GitHub Releases**: Tagged releases with security patch notes
 
-## Attribution
-
-We appreciate the efforts of security researchers who help keep EvalView and its users safe. With your permission, we will acknowledge your contribution in:
-
-- Security advisories
-- Release notes
-- A dedicated SECURITY_CREDITS.md file (if applicable)
-
-## Policy Updates
-
-This security policy may be updated from time to time. Please check back periodically for any changes.
-
 ---
 
-**Last Updated**: 2025-01-24
+Last updated: 2026-03-12

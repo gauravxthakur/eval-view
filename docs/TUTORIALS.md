@@ -410,12 +410,12 @@ Out of the box, EvalView celebrates:
 Defined in `evalview/core/celebrations.py`:
 
 ```python
-STREAK_MILESTONE_START = 1
-STREAK_MILESTONE_SMALL = 3
-STREAK_MILESTONE_MEDIUM = 5
-STREAK_MILESTONE_LARGE = 10
-STREAK_MILESTONE_LEGENDARY = 25
-STREAK_MILESTONE_INCREDIBLE = 50
+STREAK_1 = 1
+STREAK_3 = 3
+STREAK_5 = 5
+STREAK_10 = 10
+STREAK_25 = 25
+STREAK_50 = 50
 ```
 
 ### Viewing Your Progress

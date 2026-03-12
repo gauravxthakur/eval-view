@@ -685,9 +685,7 @@ class DeterministicEvaluator:
             return os.path.join(cwd, path)
         return os.path.abspath(path)
 
-    # =========================================================================
-    # Token Budget Checks
-    # =========================================================================
+    # --- Token Budget Checks ---
 
     def _check_max_input_tokens(
         self, max_tokens: int, actual_tokens: int
@@ -758,9 +756,7 @@ class DeterministicEvaluator:
             message=f"Total tokens within budget: {actual_tokens} <= {max_tokens}",
         )
 
-    # =========================================================================
-    # Build Verification
-    # =========================================================================
+    # --- Build Verification ---
 
     def _check_build_command(
         self, command: str, cwd: Optional[str]
@@ -821,9 +817,7 @@ class DeterministicEvaluator:
                 message=f"Build command failed to execute: {e}",
             )
 
-    # =========================================================================
-    # Runtime Smoke Tests
-    # =========================================================================
+    # --- Runtime Smoke Tests ---
 
     def _check_smoke_test(
         self, smoke_test: SmokeTest, cwd: Optional[str]
@@ -1018,9 +1012,7 @@ class DeterministicEvaluator:
                 except Exception as e:
                     logger.warning(f"Cleanup command failed: {e}")
 
-    # =========================================================================
-    # Repository Cleanliness
-    # =========================================================================
+    # --- Repository Cleanliness ---
 
     def _check_git_clean(self, cwd: Optional[str]) -> DeterministicCheckResult:
         """Check that git working directory is clean (no uncommitted changes).
@@ -1100,9 +1092,7 @@ class DeterministicEvaluator:
                 message=f"Error checking git status: {e}",
             )
 
-    # =========================================================================
-    # Permission/Security Checks
-    # =========================================================================
+    # --- Permission/Security Checks ---
 
     def _check_forbidden_patterns(
         self, patterns: List[str], commands: List[str]
@@ -1217,9 +1207,7 @@ class DeterministicEvaluator:
             message="No external network calls detected",
         )
 
-    # =========================================================================
-    # Advanced Security Checks (OpenClaw community hardening)
-    # =========================================================================
+    # --- Advanced Security Checks (OpenClaw community hardening) ---
 
     def _check_no_path_traversal(
         self, file_paths: List[str]

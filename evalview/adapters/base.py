@@ -24,7 +24,6 @@ class AgentAdapter(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """Name of the adapter."""
         pass
 
     @abstractmethod

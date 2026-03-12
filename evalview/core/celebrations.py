@@ -1,10 +1,4 @@
-"""Celebration and delight moments for EvalView.
-
-This module handles all the "soul" of EvalView - making regression detection
-feel memorable, fun, and habit-forming.
-
-Philosophy: "Serious about regressions, playful about everything else"
-"""
+"""Streak celebrations and onboarding prompts."""
 
 import os
 
@@ -19,22 +13,22 @@ _IS_DEMO = os.environ.get("EVALVIEW_DEMO") == "1"
 console = Console()
 
 # Milestone thresholds for streak celebrations
-STREAK_MILESTONE_START = 1
-STREAK_MILESTONE_SMALL = 3
-STREAK_MILESTONE_MEDIUM = 5
-STREAK_MILESTONE_LARGE = 10
-STREAK_MILESTONE_LEGENDARY = 25
-STREAK_MILESTONE_INCREDIBLE = 50
+STREAK_1 = 1
+STREAK_3 = 3
+STREAK_5 = 5
+STREAK_10 = 10
+STREAK_25 = 25
+STREAK_50 = 50
 
 # Streak empathy threshold
-STREAK_BREAK_EMPATHY_THRESHOLD = 5
+STREAK_BREAK_THRESHOLD = 5
 
 # Banner widths
 BANNER_WIDTH = 60
 
 
 class Celebrations:
-    """Handles all delight moments and celebrations."""
+    """Streak milestones, onboarding panels, and regression guidance."""
 
     @staticmethod
     def first_snapshot(test_count: int) -> None:
@@ -82,28 +76,28 @@ class Celebrations:
         """
         streak = state.current_streak
 
-        if streak == STREAK_MILESTONE_START:
+        if streak == STREAK_1:
             # Don't celebrate single check, just acknowledge
             console.print("[dim]Streak started at 1. Keep it going! 🔄[/dim]\n")
 
-        elif streak == STREAK_MILESTONE_SMALL:
-            console.print(f"[green]🎯 {STREAK_MILESTONE_SMALL} clean checks in a row! You're on a roll.[/green]\n")
+        elif streak == STREAK_3:
+            console.print(f"[green]🎯 {STREAK_3} clean checks in a row! You're on a roll.[/green]\n")
 
-        elif streak == STREAK_MILESTONE_MEDIUM:
+        elif streak == STREAK_5:
             console.print()
             console.print(Panel(
-                f"[bold green]🔥 {STREAK_MILESTONE_MEDIUM}-CHECK STREAK![/bold green]\n\n"
+                f"[bold green]🔥 {STREAK_5}-CHECK STREAK![/bold green]\n\n"
                 "Your agent is stable. That's what we like to see.",
                 border_style="green"
             ))
             console.print()
 
-        elif streak == STREAK_MILESTONE_LARGE:
+        elif streak == STREAK_10:
             console.print()
             console.print(Panel(
-                f"[bold green]🌟 {STREAK_MILESTONE_LARGE}-CHECK STREAK! 🌟[/bold green]\n\n"
+                f"[bold green]🌟 {STREAK_10}-CHECK STREAK! 🌟[/bold green]\n\n"
                 "[dim]Achievement unlocked: Reliability Champion[/dim]\n"
-                f"Your agent hasn't regressed in {STREAK_MILESTONE_LARGE} checks. Beautiful.",
+                f"Your agent hasn't regressed in {STREAK_10} checks. Beautiful.",
                 border_style="green"
             ))
             console.print("""
@@ -113,10 +107,10 @@ class Celebrations:
             """)
             console.print()
 
-        elif streak == STREAK_MILESTONE_LEGENDARY:
+        elif streak == STREAK_25:
             console.print()
             console.print(Panel(
-                f"[bold cyan]💎 LEGENDARY: {STREAK_MILESTONE_LEGENDARY}-Check Streak[/bold cyan]\n\n"
+                f"[bold cyan]💎 LEGENDARY: {STREAK_25}-Check Streak[/bold cyan]\n\n"
                 "This is production-grade stability.\n"
                 "Consider sharing this achievement! 🏆",
                 border_style="cyan"
@@ -126,10 +120,10 @@ class Celebrations:
             # Offer shareable badge
             Celebrations.shareable_badge(streak)
 
-        elif streak == STREAK_MILESTONE_INCREDIBLE:
+        elif streak == STREAK_50:
             console.print()
             console.print(Panel(
-                f"[bold magenta]🚀 INCREDIBLE: {STREAK_MILESTONE_INCREDIBLE}-Check Streak! 🚀[/bold magenta]\n\n"
+                f"[bold magenta]🚀 INCREDIBLE: {STREAK_50}-Check Streak! 🚀[/bold magenta]\n\n"
                 "Your agent is rock solid.\n"
                 "This deserves recognition! 🎖️",
                 border_style="magenta"
@@ -137,7 +131,7 @@ class Celebrations:
             console.print()
             Celebrations.shareable_badge(streak)
 
-        elif streak % 10 == 0 and streak > STREAK_MILESTONE_INCREDIBLE:
+        elif streak % 10 == 0 and streak > STREAK_50:
             console.print(f"[cyan]🚀 {streak}-check streak! Legendary stability.[/cyan]\n")
 
     @staticmethod
@@ -150,7 +144,7 @@ class Celebrations:
         """
         old_streak = state.current_streak
 
-        if old_streak >= STREAK_BREAK_EMPATHY_THRESHOLD:
+        if old_streak >= STREAK_BREAK_THRESHOLD:
             console.print(f"[yellow]Streak ended at {old_streak} 😔[/yellow]")
             console.print(f"[dim]Status: {diff_status}[/dim]")
             console.print("[dim]It happens! Fix the regression and start a new streak.[/dim]\n")

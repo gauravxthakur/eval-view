@@ -1,10 +1,4 @@
-"""Playful, personality-driven messages for EvalView CLI.
-
-This module provides the "soul" of EvalView - making regression detection
-feel less like a chore and more like a helpful colleague checking in.
-
-Philosophy: "Serious about regressions, playful about everything else"
-"""
+"""Rotating status messages for the CLI."""
 
 import os
 import random
@@ -38,7 +32,7 @@ CLEAN_CHECK_MESSAGES: List[str] = [
     "🎉 Perfect match! Your agent is stable.",
     "💚 Looking good! Everything matches the baseline.",
     "🏅 Zero regressions. Nice work!",
-    "👌 All tests passed! Your agent is behaving beautifully.",
+    "👌 All tests passed. No regressions.",
 ]
 
 # Error status messages (friendly alternatives to dry system messages)

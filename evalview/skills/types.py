@@ -121,9 +121,7 @@ class SkillValidationResult(BaseModel):
         return len(self.errors) + len(self.warnings) + len(self.info)
 
 
-# ============================================================================
-# Skill Test Types
-# ============================================================================
+# --- Skill Test Types ---
 
 
 class SkillTestInput(BaseModel):
