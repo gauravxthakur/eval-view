@@ -155,6 +155,22 @@ def _detect_agent_endpoint() -> Optional[str]:
     return None
 
 
+def _parse_fail_statuses(fail_on: str) -> set:
+    """Parse a comma-separated fail_on string into a set of DiffStatus enums.
+
+    Accepts uppercase strings like 'REGRESSION,TOOLS_CHANGED' and returns
+    the corresponding DiffStatus enum members.
+    """
+    from evalview.core.diff import DiffStatus
+
+    mapping = {s.value.upper(): s for s in DiffStatus}
+    return {
+        mapping[s.strip().upper()]
+        for s in fail_on.split(",")
+        if s.strip().upper() in mapping
+    }
+
+
 def _load_config_if_exists() -> Optional["EvalViewConfig"]:
     """Load config from .evalview/config.yaml if it exists."""
     from evalview.core.config import EvalViewConfig

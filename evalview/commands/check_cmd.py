@@ -537,10 +537,11 @@ def _compute_check_exit_code(
     if not fail_on:
         fail_on = "REGRESSION"  # Default
 
-    fail_statuses = set(s.strip().upper() for s in fail_on.split(","))
+    from evalview.commands.shared import _parse_fail_statuses
+    fail_statuses = _parse_fail_statuses(fail_on)
 
     for _, diff in diffs:
-        if diff.overall_severity.value.upper() in fail_statuses:
+        if diff.overall_severity in fail_statuses:
             return 1
 
     return 0

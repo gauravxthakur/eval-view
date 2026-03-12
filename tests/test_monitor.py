@@ -1,6 +1,7 @@
 """Tests for the monitor command and Slack notifier."""
 
 import asyncio
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Set
@@ -11,10 +12,12 @@ import yaml
 
 from evalview.commands.monitor_cmd import (
     MonitorError,
+    _append_history,
     _resolve_slack_webhook,
     _run_monitor_loop,
     _sleep_interruptible,
 )
+from evalview.core.diff import DiffStatus
 from evalview.core.slack_notifier import SlackNotifier
 
 
@@ -208,7 +211,6 @@ class TestSlackNotifier:
     """Test Slack notification formatting and delivery."""
 
     def test_regression_alert_includes_test_names(self):
-        from evalview.core.diff import DiffStatus
         notifier = SlackNotifier("https://hooks.slack.com/test")
 
         diff_reg = _make_diff("REGRESSION", score_diff=-15.0)
@@ -480,7 +482,7 @@ class TestMonitorLoop:
         from evalview.commands.monitor_cmd import _resolve_slack_webhook
 
         previously_failing: Set[str] = set()
-        fail_statuses = {"REGRESSION"}
+        fail_statuses = {DiffStatus.REGRESSION}
         notifier = SlackNotifier("https://hooks.slack.com/test")
 
         with (
@@ -495,7 +497,7 @@ class TestMonitorLoop:
 
                 currently_failing: Set[str] = set()
                 for name, diff in diffs:
-                    if diff.overall_severity.value.upper() in fail_statuses:
+                    if diff.overall_severity in fail_statuses:
                         currently_failing.add(name)
 
                 if not currently_failing:
@@ -535,7 +537,7 @@ class TestMonitorLoop:
 
         # Simulate: regression then recovery, no webhook
         previously_failing: Set[str] = set()
-        fail_statuses = {"REGRESSION"}
+        fail_statuses = {DiffStatus.REGRESSION}
         notifier = None  # No webhook
 
         cycles = [
@@ -547,7 +549,7 @@ class TestMonitorLoop:
         for diffs in cycles:
             currently_failing: Set[str] = set()
             for name, diff in diffs:
-                if diff.overall_severity.value.upper() in fail_statuses:
+                if diff.overall_severity in fail_statuses:
                     currently_failing.add(name)
 
             if not currently_failing:
@@ -591,7 +593,7 @@ class TestMonitorLoop:
             return True
 
         previously_failing: Set[str] = set()
-        fail_statuses = {"REGRESSION"}
+        fail_statuses = {DiffStatus.REGRESSION}
         notifier = SlackNotifier("https://hooks.slack.com/test")
 
         from evalview.commands.check_cmd import _analyze_check_diffs
@@ -604,7 +606,7 @@ class TestMonitorLoop:
                 analysis = _analyze_check_diffs(diffs)
                 currently_failing: Set[str] = set()
                 for name, diff in diffs:
-                    if diff.overall_severity.value.upper() in fail_statuses:
+                    if diff.overall_severity in fail_statuses:
                         currently_failing.add(name)
 
                 if not currently_failing:
@@ -658,3 +660,127 @@ class TestMonitorMessages:
         for _ in range(100):
             seen.add(get_random_monitor_cycle_message())
         assert len(seen) >= 3
+
+
+# ---------------------------------------------------------------------------
+# JSONL history
+# ---------------------------------------------------------------------------
+
+class TestAppendHistory:
+    """Test _append_history helper and JSONL output."""
+
+    def test_creates_parent_dirs_and_file(self, tmp_path):
+        history_path = tmp_path / "nested" / "deep" / "history.jsonl"
+        _append_history(history_path, {"cycle": 1})
+        assert history_path.exists()
+
+    def test_writes_valid_jsonl(self, tmp_path):
+        history_path = tmp_path / "history.jsonl"
+        _append_history(history_path, {"cycle": 1, "passed": 4})
+        line = history_path.read_text().strip()
+        parsed = json.loads(line)
+        assert parsed["cycle"] == 1
+        assert parsed["passed"] == 4
+
+    def test_appends_multiple_lines(self, tmp_path):
+        history_path = tmp_path / "history.jsonl"
+        _append_history(history_path, {"cycle": 1})
+        _append_history(history_path, {"cycle": 2})
+        _append_history(history_path, {"cycle": 3})
+        lines = [l for l in history_path.read_text().strip().split("\n") if l]
+        assert len(lines) == 3
+        assert json.loads(lines[0])["cycle"] == 1
+        assert json.loads(lines[2])["cycle"] == 3
+
+    def test_record_has_expected_keys(self, tmp_path):
+        """Verify the full record schema matches what the monitor writes."""
+        history_path = tmp_path / "history.jsonl"
+        record = {
+            "timestamp": "2026-03-12T10:00:00Z",
+            "cycle": 1,
+            "total_tests": 4,
+            "passed": 3,
+            "regressions": 1,
+            "tools_changed": 0,
+            "output_changed": 0,
+            "cost": 0.0031,
+            "failing_tests": ["billing-dispute"],
+        }
+        _append_history(history_path, record)
+        parsed = json.loads(history_path.read_text().strip())
+        expected_keys = {"timestamp", "cycle", "total_tests", "passed", "regressions",
+                         "tools_changed", "output_changed", "cost", "failing_tests"}
+        assert set(parsed.keys()) == expected_keys
+
+    def test_no_file_created_when_not_called(self, tmp_path):
+        """Sanity check — no history file unless _append_history is called."""
+        history_path = tmp_path / "history.jsonl"
+        assert not history_path.exists()
+
+    def test_preserves_existing_content(self, tmp_path):
+        """Appending to a pre-existing file should not overwrite it."""
+        history_path = tmp_path / "history.jsonl"
+        history_path.write_text('{"cycle": 0, "pre_existing": true}\n')
+        _append_history(history_path, {"cycle": 1})
+        lines = [l for l in history_path.read_text().strip().split("\n") if l]
+        assert len(lines) == 2
+        assert json.loads(lines[0])["pre_existing"] is True
+        assert json.loads(lines[1])["cycle"] == 1
+
+
+class TestHistorySeverityCounts:
+    """Verify severity buckets are counted correctly in the monitor loop."""
+
+    def test_passed_count_excludes_all_non_passed(self):
+        """passed = total - regressions - tools_changed - output_changed, NOT total - currently_failing."""
+        diff_passed = _make_diff("PASSED")
+        diff_regression = _make_diff("REGRESSION")
+        diff_tools = _make_diff("TOOLS_CHANGED")
+
+        diffs = [
+            ("test-a", diff_passed),
+            ("test-b", diff_regression),
+            ("test-c", diff_tools),
+            ("test-d", diff_passed),
+        ]
+
+        regressions = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.REGRESSION)
+        tools_changed = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.TOOLS_CHANGED)
+        output_changed = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.OUTPUT_CHANGED)
+        passed = len(diffs) - regressions - tools_changed - output_changed
+
+        assert regressions == 1
+        assert tools_changed == 1
+        assert output_changed == 0
+        assert passed == 2  # Only test-a and test-d
+
+    def test_counts_with_fail_on_subset(self):
+        """Even with --fail-on REGRESSION only, severity counts reflect actual statuses."""
+        diff_passed = _make_diff("PASSED")
+        diff_regression = _make_diff("REGRESSION")
+        diff_tools = _make_diff("TOOLS_CHANGED")
+
+        diffs = [
+            ("test-a", diff_passed),
+            ("test-b", diff_regression),
+            ("test-c", diff_tools),
+        ]
+
+        fail_statuses = {DiffStatus.REGRESSION}  # Only regressions trigger alerts
+
+        # currently_failing is filtered by fail_on
+        currently_failing = set()
+        for name, diff in diffs:
+            if diff.overall_severity in fail_statuses:
+                currently_failing.add(name)
+
+        # But severity counts are NOT filtered
+        regressions = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.REGRESSION)
+        tools_changed = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.TOOLS_CHANGED)
+        output_changed = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.OUTPUT_CHANGED)
+        passed = len(diffs) - regressions - tools_changed - output_changed
+
+        assert currently_failing == {"test-b"}  # Only regression
+        assert regressions == 1
+        assert tools_changed == 1  # Still counted even though not in fail_on
+        assert passed == 1  # Only test-a (NOT 2, which the old bug would produce)

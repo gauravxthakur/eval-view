@@ -672,9 +672,25 @@ evalview monitor                                         # Check every 5 minutes
 evalview monitor --interval 60                           # Check every minute
 evalview monitor --slack-webhook https://hooks.slack.com/services/...  # Slack alerts
 evalview monitor --test "critical-flow" --interval 30    # Watch one test closely
+evalview monitor --history monitor.jsonl                 # Save cycle data for trend analysis
 ```
 
 When a regression appears, you get a Slack notification with the failing tests. When it's resolved, you get an all-clear. Only new regressions trigger alerts — no spam.
+
+**Cycle history (`--history`):**
+
+Append each cycle's results to a JSONL file for trend analysis and dashboards:
+
+```bash
+evalview monitor --history .evalview/monitor_history.jsonl --slack-webhook https://...
+```
+
+Each line is a JSON object:
+```json
+{"timestamp": "2026-03-12T14:32:01Z", "cycle": 1, "total_tests": 4, "passed": 4, "regressions": 0, "tools_changed": 0, "output_changed": 0, "cost": 0.0031, "failing_tests": []}
+```
+
+The file is append-only — it grows across sessions, so you can track agent health over days or weeks.
 
 **Configuration via `config.yaml`:**
 
@@ -1054,7 +1070,7 @@ safety-refusal              95         95         ✓  same
 | **Production Log Import** | `evalview import prod.jsonl` — auto-detect JSONL/OpenAI/EvalView formats, generate test YAMLs from real traffic | [Docs](#production-log-import) |
 | **Benchmark Packs** | 30 portable tests across RAG, coding, support, research — comparable scores per domain and difficulty tier | [Docs](#benchmark-packs) |
 | **Trajectory Diff (`evalview replay`)** | Step-by-step terminal + side-by-side HTML diff of baseline vs. current agent path — pinpoints where behavior diverged | [Docs](#evalview-replay--trajectory-diff-debugging) |
-| **Production Monitoring** | `evalview monitor` — continuous regression checks with Slack alerts, recovery notifications, configurable interval | [Docs](#production-monitoring) |
+| **Production Monitoring** | `evalview monitor` — continuous regression checks with Slack alerts, recovery notifications, JSONL history export | [Docs](#production-monitoring) |
 
 ---
 

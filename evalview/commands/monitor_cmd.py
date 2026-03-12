@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-import json as _json
+import json
 import os
 import signal
 import sys
@@ -13,11 +13,12 @@ from typing import Any, Optional, Set
 
 import click
 
-from evalview.commands.shared import console, _load_config_if_exists
+from evalview.commands.shared import console, _load_config_if_exists, _parse_fail_statuses
 from evalview.commands.check_cmd import (
     _execute_check_tests,
     _analyze_check_diffs,
 )
+from evalview.core.diff import DiffStatus
 from evalview.telemetry.decorators import track_command
 
 
@@ -47,7 +48,7 @@ def _append_history(history_path: Path, record: dict) -> None:
     """
     history_path.parent.mkdir(parents=True, exist_ok=True)
     with history_path.open("a", encoding="utf-8") as f:
-        f.write(_json.dumps(record) + "\n")
+        f.write(json.dumps(record) + "\n")
 
 
 def _run_monitor_loop(
@@ -57,6 +58,7 @@ def _run_monitor_loop(
     fail_on: str,
     timeout: float,
     test_filter: Optional[str],
+    config: Any = None,
     history_path: Optional[Path] = None,
 ) -> None:
     """Main monitor loop. Runs check cycles until Ctrl+C.
@@ -72,13 +74,8 @@ def _run_monitor_loop(
         get_random_monitor_clean_message,
     )
     from evalview.core.slack_notifier import SlackNotifier
-    from evalview.core.config import apply_judge_config
 
-    config = _load_config_if_exists()
-    apply_judge_config(config)
-
-    webhook_url = _resolve_slack_webhook(slack_webhook, config)
-    notifier = SlackNotifier(webhook_url) if webhook_url else None
+    notifier = SlackNotifier(slack_webhook) if slack_webhook else None
 
     # Verify snapshots exist
     store = GoldenStore()
@@ -114,7 +111,7 @@ def _run_monitor_loop(
 
     signal.signal(signal.SIGINT, _handle_sigint)
 
-    fail_statuses = set(s.strip().upper() for s in fail_on.split(","))
+    fail_statuses = _parse_fail_statuses(fail_on)
 
     try:
         while not shutdown:
@@ -140,14 +137,14 @@ def _run_monitor_loop(
             # Determine currently failing tests (only those matching fail_on)
             currently_failing: Set[str] = set()
             for name, diff in diffs:
-                if diff.overall_severity.value.upper() in fail_statuses:
+                if diff.overall_severity in fail_statuses:
                     currently_failing.add(name)
 
-            # Count severity buckets for history record
-            regressions = sum(1 for _, d in diffs if d.overall_severity.value == "REGRESSION")
-            tools_changed = sum(1 for _, d in diffs if d.overall_severity.value == "TOOLS_CHANGED")
-            output_changed = sum(1 for _, d in diffs if d.overall_severity.value == "OUTPUT_CHANGED")
-            passed = len(diffs) - len(currently_failing)
+            # Count severity buckets for history record and display
+            regressions = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.REGRESSION)
+            tools_changed = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.TOOLS_CHANGED)
+            output_changed = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.OUTPUT_CHANGED)
+            passed = len(diffs) - regressions - tools_changed - output_changed
 
             if not currently_failing:
                 cost_part = f"  [dim]${cycle_cost:.4f}[/dim]" if cycle_cost > 0 else ""
@@ -170,7 +167,7 @@ def _run_monitor_loop(
                 console.print(f"  ⚠  {', '.join(parts)}")
 
                 for name, diff in diffs:
-                    if diff.overall_severity.value.upper() in fail_statuses:
+                    if diff.overall_severity in fail_statuses:
                         console.print(f"    [red]✗ {name}[/red] ({diff.overall_severity.value})")
 
                 # Only alert on NEW failures (avoid spamming)
@@ -230,7 +227,7 @@ def _sleep_interruptible(seconds: int, should_stop: Any) -> None:
     "history_path",
     default=None,
     type=click.Path(),
-    help="Append each cycle's results to a JSONL file (default: .evalview/monitor_history.jsonl)",
+    help="Append each cycle's results to a JSONL file",
 )
 @track_command("monitor")
 def monitor(
@@ -268,7 +265,10 @@ def monitor(
         EVALVIEW_SLACK_WEBHOOK    Slack webhook URL (fallback)
     """
     # Resolve defaults from config file
+    from evalview.core.config import apply_judge_config
+
     config = _load_config_if_exists()
+    apply_judge_config(config)
     monitor_cfg = config.get_monitor_config() if config else None
 
     resolved_interval = interval or (monitor_cfg.interval if monitor_cfg else 300)
@@ -283,13 +283,7 @@ def monitor(
         click.echo("Error: --timeout must be a positive number.", err=True)
         sys.exit(1)
 
-    resolved_history = (
-        Path(history_path) if history_path else None
-    )
-    # Default path if the flag was passed without a value is handled by click;
-    # callers that want the default can pass --history without an argument by
-    # using the documented default explicitly:
-    #   evalview monitor --history .evalview/monitor_history.jsonl
+    resolved_history = Path(history_path) if history_path else None
 
     try:
         _run_monitor_loop(
@@ -299,6 +293,7 @@ def monitor(
             fail_on=resolved_fail_on,
             timeout=resolved_timeout,
             test_filter=test_filter,
+            config=config,
             history_path=resolved_history,
         )
     except MonitorError as e:
