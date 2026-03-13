@@ -17,7 +17,6 @@ from evalview.telemetry.events import (
     SkillTestGenerationStartEvent,
     SkillTestGenerationCompleteEvent,
     SkillTestGenerationFailedEvent,
-    GeneratedTestQualityEvent,
     UserFeedbackEvent,
 )
 from evalview.telemetry.client import TelemetryClient, get_client
@@ -40,7 +39,6 @@ __all__ = [
     "SkillTestGenerationStartEvent",
     "SkillTestGenerationCompleteEvent",
     "SkillTestGenerationFailedEvent",
-    "GeneratedTestQualityEvent",
     "UserFeedbackEvent",
     # Client
     "TelemetryClient",

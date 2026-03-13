@@ -200,20 +200,6 @@ class SkillTestGenerationFailedEvent(BaseEvent):
 
 
 @dataclass
-class GeneratedTestQualityEvent(BaseEvent):
-    """Fired when user runs generated tests (deferred tracking)."""
-
-    event_type: str = "generated_test_quality"
-    command_name: str = "skill_test"
-    skill_name: str = ""
-    tests_passed: int = 0
-    tests_failed: int = 0
-    pass_rate: float = 0.0
-    generation_id: str = ""  # UUID linking back to generation event
-    time_since_generation_hours: int = 0
-
-
-@dataclass
 class UserFeedbackEvent(BaseEvent):
     """Fired when user rates generation quality."""
 

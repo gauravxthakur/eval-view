@@ -219,6 +219,8 @@ async def _run_async(
     dry_run: bool = False,
 ) -> None:
     """Async implementation of the run command."""
+    import time as _time
+    _run_start = _time.monotonic()
     import fnmatch
     from dotenv import load_dotenv
     from evalview.tracking import RegressionTracker
@@ -755,13 +757,12 @@ async def _run_async(
 
     # ── Telemetry ─────────────────────────────────────────────────────────────
     try:
-        import time as _time
         track_run_command(
             adapter_type=adapter_type,
             test_count=len(test_cases),
             pass_count=passed,
             fail_count=failed,
-            duration_ms=0.0,
+            duration_ms=(_time.monotonic() - _run_start) * 1000,
             diff_mode=diff,
             watch_mode=watch,
             parallel=not sequential,
