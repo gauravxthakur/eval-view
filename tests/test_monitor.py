@@ -492,7 +492,7 @@ class TestMonitorLoop:
             for cycle in range(4):
                 diffs, results = cycle_outcomes[cycle]
 
-                from evalview.commands.check_cmd import _analyze_check_diffs
+                from evalview.commands.shared import _analyze_check_diffs
                 analysis = _analyze_check_diffs(diffs)
 
                 currently_failing: Set[str] = set()
@@ -533,7 +533,7 @@ class TestMonitorLoop:
         diff_regression = _make_diff("REGRESSION", score_diff=-10.0)
         diff_passed = _make_diff("PASSED")
 
-        from evalview.commands.check_cmd import _analyze_check_diffs
+        from evalview.commands.shared import _analyze_check_diffs
 
         # Simulate: regression then recovery, no webhook
         previously_failing: Set[str] = set()
@@ -596,7 +596,7 @@ class TestMonitorLoop:
         fail_statuses = {DiffStatus.REGRESSION}
         notifier = SlackNotifier("https://hooks.slack.com/test")
 
-        from evalview.commands.check_cmd import _analyze_check_diffs
+        from evalview.commands.shared import _analyze_check_diffs
 
         with (
             patch.object(SlackNotifier, "send_regression_alert", fake_send_regression),

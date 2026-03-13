@@ -13,8 +13,10 @@ from typing import Any, Optional, Set
 
 import click
 
-from evalview.commands.shared import console, _load_config_if_exists, _parse_fail_statuses
-from evalview.commands.check_cmd import (
+from evalview.commands.shared import (
+    console,
+    _load_config_if_exists,
+    _parse_fail_statuses,
     _execute_check_tests,
     _analyze_check_diffs,
 )

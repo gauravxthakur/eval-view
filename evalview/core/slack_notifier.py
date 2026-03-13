@@ -29,17 +29,21 @@ class SlackNotifier:
             True if the message was sent successfully.
         """
         from evalview.core.diff import DiffStatus
+        from evalview.core.root_cause import analyze_root_cause
 
         # Build the list of failing tests
         failing = []
         for name, diff in diffs:
+            root_cause = analyze_root_cause(diff)
+            cause_line = f"\n    _{root_cause.summary}_" if root_cause is not None else ""
+
             if diff.overall_severity == DiffStatus.REGRESSION:
                 score_part = f" (score {diff.score_diff:+.1f})" if diff.score_diff is not None else ""
-                failing.append(f":red_circle: *{name}* — REGRESSION{score_part}")
+                failing.append(f":red_circle: *{name}* — REGRESSION{score_part}{cause_line}")
             elif diff.overall_severity == DiffStatus.TOOLS_CHANGED:
-                failing.append(f":large_orange_circle: *{name}* — TOOLS_CHANGED")
+                failing.append(f":large_orange_circle: *{name}* — TOOLS_CHANGED{cause_line}")
             elif diff.overall_severity == DiffStatus.OUTPUT_CHANGED:
-                failing.append(f":white_circle: *{name}* — OUTPUT_CHANGED")
+                failing.append(f":white_circle: *{name}* — OUTPUT_CHANGED{cause_line}")
 
         if not failing:
             return True  # Nothing to report

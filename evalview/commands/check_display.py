@@ -1,0 +1,412 @@
+"""Display and printing functions for check command output."""
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+
+from evalview.commands.shared import console
+
+if TYPE_CHECKING:
+    from evalview.core.types import EvaluationResult
+    from evalview.core.diff import TraceDiff, ToolDiff
+    from evalview.core.project_state import ProjectState
+    from evalview.core.drift_tracker import DriftTracker
+    from evalview.core.golden import GoldenTrace
+    from evalview.core.root_cause import RootCauseAnalysis
+
+
+def _print_parameter_diffs(tool_diffs: List["ToolDiff"]) -> None:
+    """Print parameter-level differences for tool calls."""
+    from rich.table import Table
+
+    has_param_diffs = any(td.parameter_diffs for td in tool_diffs)
+    if not has_param_diffs:
+        return
+
+    table = Table(
+        title="Parameter Changes",
+        show_header=True,
+        header_style="bold",
+        show_lines=False,
+        padding=(0, 1),
+    )
+    table.add_column("Step", style="dim", width=5)
+    table.add_column("Tool", style="cyan", min_width=12)
+    table.add_column("Param", style="bold", min_width=10)
+    table.add_column("Baseline", min_width=15)
+    table.add_column("Current", min_width=15)
+    table.add_column("", width=8)
+
+    for td in tool_diffs:
+        if not td.parameter_diffs:
+            continue
+        tool_name = td.golden_tool or td.actual_tool or "?"
+        for pd in td.parameter_diffs:
+            # Format the change indicator
+            if pd.diff_type == "missing":
+                indicator = "[red]-removed[/red]"
+                golden_val = str(pd.golden_value)[:40]
+                actual_val = "[dim]—[/dim]"
+            elif pd.diff_type == "added":
+                indicator = "[green]+added[/green]"
+                golden_val = "[dim]—[/dim]"
+                actual_val = str(pd.actual_value)[:40]
+            elif pd.similarity is not None:
+                pct = int(pd.similarity * 100)
+                color = "green" if pct >= 80 else "yellow" if pct >= 50 else "red"
+                indicator = f"[{color}]{pct}%[/{color}]"
+                golden_val = str(pd.golden_value)[:40]
+                actual_val = str(pd.actual_value)[:40]
+            else:
+                indicator = "[yellow]~[/yellow]"
+                golden_val = str(pd.golden_value)[:40]
+                actual_val = str(pd.actual_value)[:40]
+
+            table.add_row(
+                str(td.position + 1),
+                tool_name,
+                pd.param_name,
+                golden_val,
+                actual_val,
+                indicator,
+            )
+
+    console.print(table)
+    console.print()
+
+
+def _print_output_diff(diff: "TraceDiff") -> None:
+    """Print output similarity and unified diff excerpt."""
+    if not diff.output_diff:
+        return
+
+    od = diff.output_diff
+    if od.similarity >= 0.95:
+        return  # Close enough, don't show
+
+    # Similarity line
+    sim_pct = int(od.similarity * 100)
+    sim_color = "green" if sim_pct >= 80 else "yellow" if sim_pct >= 50 else "red"
+    parts = [f"[{sim_color}]{sim_pct}% lexical[/{sim_color}]"]
+    if od.semantic_similarity is not None:
+        sem_pct = int(od.semantic_similarity * 100)
+        sem_color = "green" if sem_pct >= 80 else "yellow" if sem_pct >= 50 else "red"
+        parts.append(f"[{sem_color}]{sem_pct}% semantic[/{sem_color}]")
+    console.print(f"    Output similarity: {' / '.join(parts)}")
+
+    # Show a few diff lines (max 8) for context
+    meaningful_lines = [
+        line for line in od.diff_lines
+        if line.startswith("+") or line.startswith("-")
+        if not line.startswith("+++") and not line.startswith("---")
+    ]
+    if meaningful_lines:
+        for line in meaningful_lines[:8]:
+            if line.startswith("+"):
+                console.print(f"      [green]{line}[/green]")
+            else:
+                console.print(f"      [red]{line}[/red]")
+        if len(meaningful_lines) > 8:
+            console.print(f"      [dim]... {len(meaningful_lines) - 8} more lines[/dim]")
+    console.print()
+
+
+def _print_root_cause(root_cause: "RootCauseAnalysis") -> None:
+    """Print root cause attribution for a regression."""
+    from rich.panel import Panel
+
+    confidence_color = {
+        "high": "green",
+        "medium": "yellow",
+        "low": "dim",
+    }.get(root_cause.confidence.value, "dim")
+
+    lines = [
+        f"[bold]Root cause:[/bold] {root_cause.category.value} ([{confidence_color}]{root_cause.confidence.value} confidence[/{confidence_color}])",
+        f"  [dim]→[/dim] {root_cause.summary}",
+    ]
+    if root_cause.suggested_fix:
+        lines.append(f"  [dim]Fix:[/dim] {root_cause.suggested_fix}")
+
+    if getattr(root_cause, "ai_explanation", None):
+        lines.append(f"  [cyan]🤖 AI:[/cyan] {root_cause.ai_explanation}")
+
+    console.print(Panel(
+        "\n".join(lines),
+        border_style="red" if root_cause.confidence.value == "high" else "yellow",
+        padding=(0, 1),
+    ))
+
+
+def _print_inline_trajectory(diff: "TraceDiff", golden: Optional["GoldenTrace"], result: Optional["EvaluationResult"]) -> None:
+    """Print a compact inline trajectory comparison for check output."""
+    golden_seq: List[str] = []
+    actual_seq: List[str] = []
+
+    if golden:
+        golden_seq = golden.tool_sequence or []
+    if result:
+        try:
+            actual_seq = [
+                str(getattr(s, "tool_name", None) or getattr(s, "step_name", "?"))
+                for s in (result.trace.steps or [])
+            ]
+        except AttributeError:
+            pass
+
+    if not golden_seq and not actual_seq:
+        return
+
+    if golden_seq != actual_seq:
+        console.print(f"    [dim]Baseline:[/dim] {' → '.join(golden_seq) or '(none)'}")
+        console.print(f"    [dim]Current:[/dim]  {' → '.join(actual_seq) or '(none)'}")
+
+
+def _display_check_results(
+    diffs: List[Tuple[str, "TraceDiff"]],
+    analysis: Dict[str, Any],
+    state: "ProjectState",
+    is_first_check: bool,
+    json_output: bool,
+    drift_tracker: Optional["DriftTracker"] = None,
+    golden_traces: Optional[Dict[str, "GoldenTrace"]] = None,
+    results: Optional[List["EvaluationResult"]] = None,
+    ai_root_causes: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Display check results in JSON or console format."""
+    import json
+
+    from evalview.core.diff import DiffStatus
+    from evalview.core.celebrations import Celebrations
+    from evalview.core.drift_tracker import DriftTracker
+    from evalview.core.messages import get_random_clean_check_message
+    from evalview.core.root_cause import analyze_root_cause
+    from rich.panel import Panel
+
+    # Build result lookup by test name
+    result_by_name: Dict[str, Any] = {}
+    if results:
+        for r in results:
+            result_by_name[r.test_case] = r
+
+    # Pre-compute root causes (use AI-enriched versions when available)
+    _ai_rc = ai_root_causes or {}
+    root_cause_by_name: Dict[str, Any] = {}
+    for name, diff in diffs:
+        rc = _ai_rc.get(name) or analyze_root_cause(diff)
+        root_cause_by_name[name] = rc
+
+    if json_output:
+        output = {
+            "summary": {
+                "total_tests": len(diffs),
+                "unchanged": sum(1 for _, d in diffs if d.overall_severity == DiffStatus.PASSED),
+                "regressions": sum(1 for _, d in diffs if d.overall_severity == DiffStatus.REGRESSION),
+                "tools_changed": sum(1 for _, d in diffs if d.overall_severity == DiffStatus.TOOLS_CHANGED),
+                "output_changed": sum(1 for _, d in diffs if d.overall_severity == DiffStatus.OUTPUT_CHANGED),
+                "model_changed": any(getattr(d, "model_changed", False) for _, d in diffs),
+            },
+            "diffs": [
+                {
+                    "test_name": name,
+                    "status": diff.overall_severity.value,
+                    "score_delta": diff.score_diff,
+                    "has_tool_diffs": len(diff.tool_diffs) > 0,
+                    "tool_diffs": [
+                        {
+                            "type": td.type,
+                            "position": td.position,
+                            "golden_tool": td.golden_tool,
+                            "actual_tool": td.actual_tool,
+                            "message": td.message,
+                            "parameter_diffs": [
+                                {
+                                    "param": pd.param_name,
+                                    "golden": pd.golden_value,
+                                    "actual": pd.actual_value,
+                                    "type": pd.diff_type,
+                                    "similarity": pd.similarity,
+                                }
+                                for pd in td.parameter_diffs
+                            ],
+                        }
+                        for td in diff.tool_diffs
+                    ],
+                    "output_similarity": diff.output_diff.similarity if diff.output_diff else 1.0,
+                    "semantic_similarity": (
+                        diff.output_diff.semantic_similarity if diff.output_diff else None
+                    ),
+                    "model_changed": getattr(diff, "model_changed", False),
+                    "golden_model_id": getattr(diff, "golden_model_id", None),
+                    "actual_model_id": getattr(diff, "actual_model_id", None),
+                    "root_cause": (
+                        root_cause_by_name[name].to_dict()
+                        if root_cause_by_name.get(name) is not None
+                        else None
+                    ),
+                }
+                for name, diff in diffs
+            ],
+        }
+        print(json.dumps(output, indent=2))
+    else:
+        # Console output with personality
+        if is_first_check:
+            Celebrations.first_check()
+
+        # Model version change warning
+        model_changed_diffs = [
+            (name, d) for name, d in diffs if getattr(d, "model_changed", False)
+        ]
+        if model_changed_diffs:
+            name, d = model_changed_diffs[0]
+            golden_m = getattr(d, "golden_model_id", "unknown")
+            actual_m = getattr(d, "actual_model_id", "unknown")
+            console.print(
+                Panel(
+                    f"[yellow]Model changed:[/yellow] "
+                    f"[dim]{golden_m}[/dim] → [bold]{actual_m}[/bold]\n\n"
+                    "Baselines were captured with a different model version. "
+                    "Output changes below may be caused by the model update rather "
+                    "than your code. If the new behavior looks correct, run "
+                    "[bold]evalview snapshot[/bold] to update the baseline.",
+                    title="⚠  Model Version Change Detected",
+                    border_style="yellow",
+                )
+            )
+            console.print()
+
+        # Gradual drift warnings
+        _drift = drift_tracker if drift_tracker is not None else DriftTracker()
+        for name, _ in diffs:
+            warning = _drift.detect_gradual_drift(name)
+            if warning:
+                console.print(f"[yellow]📉 {name}:[/yellow] {warning}\n")
+
+        if analysis["all_passed"]:
+            console.print(f"[green]{get_random_clean_check_message()}[/green]\n")
+
+            if state.current_streak >= 3:
+                Celebrations.clean_check_streak(state)
+
+            if state.total_checks >= 5 and state.total_checks % 5 == 0:
+                Celebrations.health_summary(state)
+        else:
+            console.print("\n[bold]Diff Summary[/bold]")
+            unchanged = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.PASSED)
+            console.print(f"  {unchanged}/{len(diffs)} unchanged")
+            if analysis["has_regressions"]:
+                count = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.REGRESSION)
+                console.print(f"  {count} {'regression' if count == 1 else 'regressions'}")
+            if analysis["has_tools_changed"]:
+                count = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.TOOLS_CHANGED)
+                console.print(f"  {count} tool {'change' if count == 1 else 'changes'}")
+            if analysis["has_output_changed"]:
+                count = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.OUTPUT_CHANGED)
+                console.print(f"  {count} output {'change' if count == 1 else 'changes'}")
+
+            console.print()
+
+            _goldens = golden_traces or {}
+            for name, diff in diffs:
+                if diff.overall_severity != DiffStatus.PASSED:
+                    severity_icon = {
+                        DiffStatus.REGRESSION: "[red]✗ REGRESSION[/red]",
+                        DiffStatus.TOOLS_CHANGED: "[yellow]⚠ TOOLS_CHANGED[/yellow]",
+                        DiffStatus.OUTPUT_CHANGED: "[dim]~ OUTPUT_CHANGED[/dim]",
+                    }.get(diff.overall_severity, "?")
+
+                    score_part = ""
+                    if abs(diff.score_diff) > 1:
+                        sign = "+" if diff.score_diff > 0 else ""
+                        score_color = "green" if diff.score_diff > 0 else "red"
+                        score_part = f"  [{score_color}]{sign}{diff.score_diff:.1f} pts[/{score_color}]"
+
+                    console.print(f"{severity_icon}: {name}{score_part}")
+
+                    golden_for_test = _goldens.get(name)
+                    result_for_test = result_by_name.get(name)
+                    _print_inline_trajectory(diff, golden_for_test, result_for_test)
+
+                    if diff.tool_diffs:
+                        _print_parameter_diffs(diff.tool_diffs)
+
+                    _print_output_diff(diff)
+
+                    root_cause = root_cause_by_name.get(name)
+                    if root_cause is not None:
+                        _print_root_cause(root_cause)
+
+                    quoted = f'"{name}"' if " " in name else name
+                    console.print(f"    [dim]→ evalview replay {quoted}[/dim]")
+                    console.print()
+
+            if analysis["has_regressions"]:
+                Celebrations.regression_guidance("See details above")
+
+
+def _print_trajectory_diff(golden: Any, result: Any) -> None:
+    """Print a side-by-side terminal trajectory comparison (golden vs actual)."""
+    from rich.table import Table
+    from rich.text import Text
+
+    golden_steps: List[Any] = []
+    actual_steps: List[Any] = []
+    try:
+        golden_steps = golden.trace.steps or []
+    except AttributeError:
+        pass
+    try:
+        actual_steps = result.trace.steps or []
+    except AttributeError:
+        pass
+
+    if not golden_steps and not actual_steps:
+        console.print("[dim]No tool steps in either trace — both are direct responses.[/dim]\n")
+        return
+
+    max_steps = max(len(golden_steps), len(actual_steps))
+
+    table = Table(
+        title="Trajectory Diff",
+        show_header=True,
+        header_style="bold",
+        show_lines=True,
+    )
+    table.add_column("#", style="dim", width=3)
+    table.add_column("Baseline", min_width=30)
+    table.add_column("Current", min_width=30)
+    table.add_column("", justify="center", width=3)
+
+    for i in range(max_steps):
+        g = golden_steps[i] if i < len(golden_steps) else None
+        a = actual_steps[i] if i < len(actual_steps) else None
+
+        g_name: str = str((getattr(g, "tool_name", None) or getattr(g, "step_name", "?")) if g else "—")
+        a_name: str = str((getattr(a, "tool_name", None) or getattr(a, "step_name", "?")) if a else "—")
+
+        match = g_name == a_name
+        match_str = "[green]✓[/green]" if match else "[red]✗[/red]"
+
+        if match:
+            g_style, a_style = "cyan", "cyan"
+        elif a_name == "—":
+            g_style, a_style = "cyan", "red"   # step was dropped
+        elif g_name == "—":
+            g_style, a_style = "dim", "yellow"  # new step added
+        else:
+            g_style, a_style = "cyan", "yellow"  # step changed
+
+        table.add_row(str(i + 1), Text(g_name, style=g_style), Text(a_name, style=a_style), match_str)
+
+    console.print(table)
+    console.print()
+
+    golden_seq = [str(getattr(s, "tool_name", None) or getattr(s, "step_name", "?")) for s in golden_steps]
+    actual_seq = [str(getattr(s, "tool_name", None) or getattr(s, "step_name", "?")) for s in actual_steps]
+
+    if golden_seq == actual_seq:
+        console.print("[green]Tool sequence: identical[/green]\n")
+    else:
+        console.print("[yellow]Tool sequence changed:[/yellow]")
+        console.print(f"  Baseline: {' → '.join(golden_seq) or '(none)'}")
+        console.print(f"  Current:  {' → '.join(actual_seq) or '(none)'}\n")

@@ -1,221 +1,30 @@
-"""LLM client for judge evaluation (OpenAI, Anthropic, Gemini, Grok)."""
+"""LLM client for judge evaluation (OpenAI, Anthropic, Gemini, Grok).
+
+Provider configs, pricing data, and model aliases live in ``llm_configs.py``.
+Everything is re-exported here for backward compatibility.
+"""
 
 import os
 import json
 import logging
-from typing import Optional, Dict, Any, List, Tuple, NamedTuple
-from dataclasses import dataclass
-from enum import Enum
+from typing import Optional, Dict, Any, List, Tuple
+
+# Re-export everything from llm_configs for backward compatibility
+from evalview.core.llm_configs import (  # noqa: F401
+    LLMProvider,
+    AvailableProvider,
+    ProviderConfig,
+    PROVIDER_CONFIGS,
+    MODEL_ALIASES,
+    resolve_model_alias,
+    JudgeCostTracker,
+    judge_cost_tracker,
+    is_ollama_running,
+    detect_available_providers,
+    get_provider_from_env,
+)
 
 logger = logging.getLogger(__name__)
-
-
-class LLMProvider(Enum):
-    """Supported LLM providers for evaluation."""
-
-    OPENAI = "openai"
-    ANTHROPIC = "anthropic"
-    GEMINI = "gemini"
-    GROK = "grok"
-    DEEPSEEK = "deepseek"
-    HUGGINGFACE = "huggingface"
-    OLLAMA = "ollama"
-
-
-class AvailableProvider(NamedTuple):
-    """Result from detect_available_providers().
-
-    Note: This contains the API key, NOT the model name.
-    Use PROVIDER_CONFIGS[provider].default_model to get the default model.
-    """
-
-    provider: LLMProvider
-    api_key: str
-
-
-@dataclass
-class ProviderConfig:
-    """Configuration for an LLM provider."""
-
-    name: str
-    env_var: str
-    default_model: str
-    display_name: str
-    api_key_url: str
-
-
-# Provider configurations
-PROVIDER_CONFIGS: Dict[LLMProvider, ProviderConfig] = {
-    LLMProvider.OPENAI: ProviderConfig(
-        name="openai",
-        env_var="OPENAI_API_KEY",
-        default_model="gpt-4o-mini",
-        display_name="OpenAI",
-        api_key_url="https://platform.openai.com/api-keys",
-    ),
-    LLMProvider.ANTHROPIC: ProviderConfig(
-        name="anthropic",
-        env_var="ANTHROPIC_API_KEY",
-        default_model="claude-sonnet-4-5-20250929",
-        display_name="Anthropic",
-        api_key_url="https://console.anthropic.com/settings/keys",
-    ),
-    LLMProvider.GEMINI: ProviderConfig(
-        name="gemini",
-        env_var="GEMINI_API_KEY",
-        default_model="gemini-2.0-flash",
-        display_name="Google Gemini",
-        api_key_url="https://aistudio.google.com/app/apikey",
-    ),
-    LLMProvider.GROK: ProviderConfig(
-        name="grok",
-        env_var="XAI_API_KEY",
-        default_model="grok-2-latest",
-        display_name="xAI Grok",
-        api_key_url="https://console.x.ai/",
-    ),
-    LLMProvider.DEEPSEEK: ProviderConfig(
-        name="deepseek",
-        env_var="DEEPSEEK_API_KEY",
-        default_model="deepseek-chat",
-        display_name="DeepSeek",
-        api_key_url="https://platform.deepseek.com/api_keys",
-    ),
-    LLMProvider.HUGGINGFACE: ProviderConfig(
-        name="huggingface",
-        env_var="HF_TOKEN",
-        default_model="meta-llama/Llama-3.1-8B-Instruct",
-        display_name="Hugging Face",
-        api_key_url="https://huggingface.co/settings/tokens",
-    ),
-    LLMProvider.OLLAMA: ProviderConfig(
-        name="ollama",
-        env_var="OLLAMA_HOST",  # Optional - defaults to localhost:11434
-        default_model="llama3.2",
-        display_name="Ollama (Local)",
-        api_key_url="https://ollama.ai/download",  # Download page, no API key needed
-    ),
-}
-
-# Model aliases for better DX - shortcuts map to full model names
-MODEL_ALIASES: Dict[str, str] = {
-    # OpenAI GPT-5 family (use simple names - they track latest)
-    "gpt-5": "gpt-5",
-    "gpt-5-mini": "gpt-5-mini",
-    "gpt-5-nano": "gpt-5-nano",
-    "gpt-5.1": "gpt-5.1",
-    # OpenAI GPT-4 family
-    "gpt-4o": "gpt-4o",
-    "gpt-4o-mini": "gpt-4o-mini",
-    "gpt-4": "gpt-4-turbo",
-    # Anthropic Claude
-    "sonnet": "claude-sonnet-4-5-20250929",
-    "claude-sonnet": "claude-sonnet-4-5-20250929",
-    "opus": "claude-opus-4-6",
-    "claude-opus": "claude-opus-4-6",
-    "opus-4.6": "claude-opus-4-6",
-    "opus-4.5": "claude-opus-4-5-20251101",
-    "haiku": "claude-haiku-4-5-20251001",
-    "claude-haiku": "claude-haiku-4-5-20251001",
-    # HuggingFace Llama
-    "llama": "meta-llama/Llama-3.1-8B-Instruct",
-    "llama-8b": "meta-llama/Llama-3.1-8B-Instruct",
-    "llama-70b": "meta-llama/Llama-3.1-70B-Instruct",
-    # Google Gemini
-    "gemini": "gemini-3.0",
-    "gemini-3": "gemini-3.0",
-    "gemini-flash": "gemini-2.0-flash",
-    "gemini-pro": "gemini-1.5-pro",
-    # Ollama (local models)
-    "ollama-llama": "llama3.2",
-    "llama3.2": "llama3.2",
-    "llama3.1": "llama3.1",
-    "mistral": "mistral",
-    "codellama": "codellama",
-    "phi": "phi",
-}
-
-
-def resolve_model_alias(model: str) -> str:
-    """Resolve model alias to full model name.
-
-    Args:
-        model: Model name or alias (e.g., 'gpt-5', 'sonnet', 'llama-70b')
-
-    Returns:
-        Full model name (e.g., 'gpt-5-2025-08-07', 'claude-sonnet-4-5-20250929')
-    """
-    return MODEL_ALIASES.get(model.lower(), model)
-
-
-def is_ollama_running() -> bool:
-    """Check if Ollama is running locally.
-
-    Returns:
-        True if Ollama is accessible at localhost:11434
-    """
-    import socket
-
-    ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-    # Parse host and port from URL
-    host = ollama_host.replace("http://", "").replace("https://", "")
-    if ":" in host:
-        host, port_str = host.split(":", 1)
-        port = int(port_str)
-    else:
-        port = 11434
-
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(1)
-            s.connect((host, port))
-            return True
-    except (socket.timeout, socket.error, OSError):
-        return False
-
-
-def detect_available_providers() -> List[AvailableProvider]:
-    """Detect which LLM providers have API keys configured.
-
-    For most providers, checks if the environment variable is set.
-    For Ollama, checks if the server is running locally (no API key needed).
-
-    Returns:
-        List of AvailableProvider(provider, api_key) for available providers.
-
-        IMPORTANT: The second field is the API key, NOT the model name.
-        To get the default model, use: PROVIDER_CONFIGS[provider].default_model
-
-    Example:
-        >>> available = detect_available_providers()
-        >>> for p in available:
-        ...     print(f"{p.provider}: key={p.api_key[:8]}...")
-        ...     model = PROVIDER_CONFIGS[p.provider].default_model
-        ...     print(f"  default model: {model}")
-    """
-    available: List[AvailableProvider] = []
-    for provider, config in PROVIDER_CONFIGS.items():
-        if provider == LLMProvider.OLLAMA:
-            # Ollama doesn't need an API key - check if it's running
-            if is_ollama_running():
-                available.append(AvailableProvider(provider, "ollama"))  # Placeholder "key"
-        else:
-            api_key = os.getenv(config.env_var)
-            if api_key:
-                available.append(AvailableProvider(provider, api_key))
-    return available
-
-
-def get_provider_from_env() -> Optional[LLMProvider]:
-    """Get the user-selected provider from EVAL_PROVIDER env var."""
-    provider_name = os.getenv("EVAL_PROVIDER", "").lower()
-    if not provider_name:
-        return None
-
-    for provider in LLMProvider:
-        if provider.value == provider_name:
-            return provider
-    return None
 
 
 def select_provider() -> Tuple[LLMProvider, str]:
