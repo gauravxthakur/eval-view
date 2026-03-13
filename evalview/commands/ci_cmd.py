@@ -62,6 +62,7 @@ def ci_comment(results: Optional[str], dry_run: bool, update: bool):
         load_latest_results,
         generate_pr_comment,
         generate_check_pr_comment,
+        generate_suite_pr_comment,
         post_pr_comment,
         update_or_create_comment,
     )
@@ -93,10 +94,17 @@ def ci_comment(results: Optional[str], dry_run: bool, update: bool):
         and "summary" in data
         and "total_tests" in data.get("summary", {})
     )
+    is_generate_format = (
+        isinstance(data, dict)
+        and "tests_generated" in data
+        and "behavior_signatures" in data
+    )
 
     if is_check_format:
         # Check --json format — use the dedicated check comment generator
         comment = generate_check_pr_comment(data, run_url)
+    elif is_generate_format:
+        comment = generate_suite_pr_comment(data, run_url)
     else:
         # Legacy run format
         if isinstance(data, list):

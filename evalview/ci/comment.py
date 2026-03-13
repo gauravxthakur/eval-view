@@ -341,6 +341,101 @@ def _build_check_changes_section(check_data: Dict[str, Any], max_items: int = 5)
     return lines
 
 
+def _build_generate_summary_table(report: Dict[str, Any]) -> List[str]:
+    """Build summary table from generate report format."""
+    covered = report.get("covered", {})
+    discovery = report.get("discovery", {})
+    return [
+        "| Metric | Value |",
+        "|--------|-------|",
+        f"| Source | {report.get('source', 'live probing')} |",
+        f"| Draft Tests | {report.get('tests_generated', 0)} |",
+        f"| Probe Runs | {report.get('probes_run', 0)} |",
+        f"| Discovered Tools | {discovery.get('count', 0)} |",
+        f"| Tool Paths | {covered.get('tool_paths', 0)} |",
+        f"| Multi-turn Paths | {covered.get('multi_turn', 0)} |",
+    ]
+
+
+def _build_generate_discovery_section(report: Dict[str, Any], max_items: int = 6) -> List[str]:
+    """Build discovery and behavior summary for generated suites."""
+    lines: List[str] = []
+    discovery = report.get("discovery", {})
+    tools = discovery.get("tools", [])
+    draft_tests = report.get("draft_tests", [])
+
+    if tools:
+        lines.extend(["### Discovered Tools", ""])
+        for tool in tools[:max_items]:
+            description = tool.get("description", "")
+            suffix = f": {description[:80]}" if description else ""
+            lines.append(f"- `{tool.get('name', 'unknown')}`{suffix}")
+        remaining = len(tools) - max_items
+        if remaining > 0:
+            lines.append(f"- ... and {remaining} more")
+        lines.append("")
+
+    if draft_tests:
+        lines.extend(["### Draft Behaviors", ""])
+        for item in draft_tests[:max_items]:
+            lines.append(
+                f"- **{item.get('name', 'Unknown')}**: {item.get('signature', 'unknown')} "
+                f"({item.get('rationale', 'no rationale')})"
+            )
+        remaining = len(draft_tests) - max_items
+        if remaining > 0:
+            lines.append(f"- ... and {remaining} more")
+        lines.append("")
+
+    return lines
+
+
+def _build_generate_gaps_section(report: Dict[str, Any], max_items: int = 6) -> List[str]:
+    """Build gaps / action items section for generated suites."""
+    gaps = report.get("gaps", [])
+    if not gaps:
+        return []
+
+    lines = ["### Coverage Gaps", ""]
+    for gap in gaps[:max_items]:
+        lines.append(f"- ⚠️ {gap}")
+    remaining = len(gaps) - max_items
+    if remaining > 0:
+        lines.append(f"- ... and {remaining} more")
+    lines.append("")
+    return lines
+
+
+def _build_generate_delta_section(report: Dict[str, Any], max_items: int = 5) -> List[str]:
+    """Build changes-since-last-generation section."""
+    delta = report.get("changes_since_last_generation")
+    if not delta:
+        return []
+
+    lines = ["### Changes Since Last Generation", ""]
+    tests_delta = delta.get("tests_generated_delta", 0)
+    if tests_delta:
+        sign = "+" if tests_delta > 0 else ""
+        lines.append(f"- Draft tests: {sign}{tests_delta}")
+
+    for label, key in (
+        ("New behavior signatures", "new_signatures"),
+        ("Resolved behavior signatures", "resolved_signatures"),
+        ("New tools observed", "new_tools"),
+        ("Resolved gaps", "resolved_gaps"),
+        ("New gaps", "new_gaps"),
+    ):
+        values = delta.get(key) or []
+        if not values:
+            continue
+        preview = ", ".join(values[:max_items])
+        suffix = f", and {len(values) - max_items} more" if len(values) > max_items else ""
+        lines.append(f"- {label}: {preview}{suffix}")
+
+    lines.append("")
+    return lines
+
+
 def generate_pr_comment(
     results: List[Dict[str, Any]],
     diff_results: Optional[List[Dict[str, Any]]] = None,
@@ -439,6 +534,40 @@ def generate_check_pr_comment(
     lines.append("---")
     lines.append(COMMENT_SIGNATURE)
 
+    return "\n".join(lines)
+
+
+def generate_suite_pr_comment(
+    report: Dict[str, Any],
+    run_url: Optional[str] = None,
+) -> str:
+    """Generate markdown PR comment from evalview generate report."""
+    tests_generated = report.get("tests_generated", 0)
+    gaps = report.get("gaps", [])
+    status = "tools_changed" if gaps else "passed"
+    status_display = get_status_display(status)
+
+    lines = []
+    lines.append(f"## {status_display['emoji']} EvalView Generate: {tests_generated} Draft Test(s)")
+    lines.append("")
+    lines.extend(_build_generate_summary_table(report))
+    lines.append("")
+    lines.extend(_build_generate_discovery_section(report))
+    lines.extend(_build_generate_delta_section(report))
+    lines.extend(_build_generate_gaps_section(report))
+    lines.append("### Review Workflow")
+    lines.append("")
+    lines.append("1. Review generated YAML files")
+    lines.append("2. Run `evalview snapshot --approve-generated`")
+    lines.append("3. Commit approved baselines")
+    lines.append("")
+
+    if run_url:
+        lines.append(f"[View full report]({run_url})")
+        lines.append("")
+
+    lines.append("---")
+    lines.append(COMMENT_SIGNATURE)
     return "\n".join(lines)
 
 

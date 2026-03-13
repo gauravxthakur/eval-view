@@ -65,9 +65,9 @@ The first two layers alone catch most regressions — fully offline, zero cost. 
 ### The workflow
 
 ```bash
-evalview capture --agent http://localhost:8000/invoke   # 1. Record real interactions
-evalview snapshot                                        # 2. Save as baseline
-evalview check                                           # 3. Catch regressions
+evalview generate --agent http://localhost:8000         # 1. Draft a regression suite
+evalview snapshot tests/generated --approve-generated   # 2. Approve + baseline
+evalview check tests/generated                          # 3. Catch regressions
 evalview monitor                                         # 4. Watch continuously (+ Slack alerts)
 # ✅ All clean — or ❌ REGRESSION: score 85 → 71
 ```
@@ -76,7 +76,9 @@ evalview monitor                                         # 4. Watch continuously
 
 Choose the shortest path for your use case:
 
-- New project: `evalview capture --agent ...` → `evalview snapshot` → `evalview check`
+- New project, no traffic yet: `evalview generate --agent ...` → `evalview snapshot --approve-generated` → `evalview check`
+- Existing traffic or staging logs: `evalview generate --from-log traffic.jsonl`
+- Production-shaped tests from real usage: `evalview capture --agent ...` → `evalview snapshot` → `evalview check`
 - Existing tests, no baselines yet: `evalview snapshot`
 - CI gate for regressions: [Golden Traces](docs/GOLDEN_TRACES.md) and [CI/CD Integration](docs/CI_CD.md)
 - Framework-specific setup: [Framework Support](docs/FRAMEWORK_SUPPORT.md)
@@ -245,7 +247,23 @@ evalview check --semantic-diff
 pip install evalview
 ```
 
-### Step 1 — Capture real interactions as tests
+### Step 1 — Generate or capture tests
+
+If you have no test suite yet, start with generation:
+
+```bash
+evalview generate --agent http://localhost:8000
+# Writes draft YAML tests to tests/generated/
+# Also writes tests/generated/generated.report.json for CI review
+```
+
+If you already have logs from staging or production:
+
+```bash
+evalview generate --from-log traffic.jsonl
+```
+
+If you want tests based on real user flows instead of planned probes:
 
 ```bash
 evalview capture --agent http://localhost:8000/invoke
@@ -254,9 +272,19 @@ evalview capture --agent http://localhost:8000/invoke
 # Tests are saved to tests/test-cases/ automatically
 ```
 
-> **Why capture first?** Tests from real usage catch real regressions. Auto-generated tests from guessed queries score poorly and give you false confidence.
+> **When to use which?**
+> `generate` is the fastest path from zero to a draft suite.
+> `capture` is the highest-signal path when you already have real usage to replay.
 
-### Step 2 — Save as your baseline
+### Step 2 — Review and save as your baseline
+
+Generated tests are draft-only until you approve them:
+
+```bash
+evalview snapshot tests/generated --approve-generated
+```
+
+Captured or hand-written tests snapshot normally:
 
 ```bash
 export OPENAI_API_KEY='your-key'   # for LLM-as-judge scoring
@@ -268,6 +296,14 @@ evalview snapshot
 ```bash
 evalview check   # run this after every change
 ```
+
+### Review generated suites in CI
+
+```bash
+evalview ci comment --results tests/generated/generated.report.json --dry-run
+```
+
+That review comment summarizes discovered tools, generated behavior paths, coverage gaps, and the approval workflow before baselining.
 
 ### No agent yet? Try the demo
 

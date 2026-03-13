@@ -30,7 +30,9 @@ class TestCaseLoader:
         """
         with open(file_path, "r") as f:
             data = yaml.safe_load(f)
-        return TestCase(**data)
+        test_case = TestCase(**data)
+        test_case.source_file = str(Path(file_path))
+        return test_case
 
     @staticmethod
     def load_from_directory(directory: Union[str, Path], pattern: str = "*.yaml") -> List[TestCase]:

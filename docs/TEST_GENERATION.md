@@ -1,170 +1,155 @@
-# Test Generation — Auto-Generate AI Agent Test Variations
+# Test Generation
 
-> **Problem:** Writing AI agent tests manually is slow. You need dozens or hundreds of test cases to catch edge-case regressions, but hand-crafting each one doesn't scale.
->
-> **Solution:** EvalView's test generation creates 100+ test variations from a single seed test. It generates paraphrases, edge cases, error scenarios, and adversarial inputs automatically.
+> EvalView can now generate a draft regression suite in one command. Use it when you have an agent endpoint or traffic logs but no meaningful test suite yet.
 
----
+## Two Generation Paths
 
-## Option 1: Expand from Existing Tests
-
-Take 1 test, generate 100 variations:
+### 1. Generate from a live agent
 
 ```bash
-# Take 1 test, generate 100 variations
-evalview expand tests/stock-test.yaml --count 100
-
-# Focus on specific scenarios
-evalview expand tests/stock-test.yaml --count 50 \
-  --focus "different tickers, edge cases, error scenarios"
+evalview generate --agent http://localhost:8000
 ```
 
-### What It Generates
+What it does:
+- probes the agent with diverse prompts
+- discovers tool-aware behavior paths
+- clusters duplicate trajectories
+- writes draft YAML tests to `tests/generated/`
+- writes `tests/generated/generated.report.json`
 
-Variations like:
-- **Different inputs** (AAPL → MSFT, GOOGL, TSLA...)
-- **Edge cases** (invalid tickers, empty input, malformed requests)
-- **Boundary conditions** (very long queries, special characters)
+Use this when:
+- you have no production traffic yet
+- you want a fast draft suite from a running endpoint
+- you need tool-path coverage quickly
 
-### Example
+### 2. Generate from existing traffic
 
-Original test:
+```bash
+evalview generate --from-log traffic.jsonl
+```
+
+Supported log formats:
+- `jsonl`
+- `openai`
+- `evalview`
+
+Use this when:
+- you already have staging or production logs
+- you want to bootstrap tests from real behavior
+- you do not want to probe a live endpoint directly
+
+## What Gets Generated
+
+Each generated test is native EvalView YAML with:
+- inferred tool expectations
+- output contains / not_contains checks when stable
+- thresholds from observed behavior
+- generation metadata in `meta`
+
+Generated tests are marked as drafts:
+
 ```yaml
-name: "Stock Analysis"
-input:
-  query: "Analyze Apple stock"
-expected:
-  tools:
-    - fetch_stock_data
+meta:
+  generated_by: evalview generate
+  review_status: draft
+  confidence: high
+  rationale: Observed tool path: weather_api
+  behavior_class: tool_path
 ```
 
-Generated variations:
-```yaml
-name: "Stock Analysis - MSFT"
-input:
-  query: "Analyze Microsoft stock"
-expected:
-  tools:
-    - fetch_stock_data
+## Approval Workflow
 
----
-name: "Stock Analysis - Invalid Ticker"
-input:
-  query: "Analyze XXXXX stock"
-expected:
-  # Should handle gracefully
-
----
-name: "Stock Analysis - Empty Query"
-input:
-  query: ""
-expected:
-  # Should return helpful error
-```
-
----
-
-## Option 2: Record from Live Interactions
-
-Use your agent normally, auto-generate tests:
+Generated tests are intentionally blocked from snapshotting until reviewed.
 
 ```bash
-evalview record --interactive
+evalview snapshot tests/generated --approve-generated
 ```
 
-### What It Captures
+That command:
+1. updates generated YAML files to `review_status: approved`
+2. stamps `approved_at`
+3. snapshots approved tests as baselines
 
-- Query → Tools called → Output
-- Auto-generates test YAML
-- Adds reasonable thresholds
+If you forget the flag, EvalView refuses to baseline draft-generated tests.
 
-### Example Session
+## CI Review Workflow
 
-```
-$ evalview record --interactive
-
-Recording session started. Use your agent normally.
-Press Ctrl+C to stop recording.
-
-> What's the weather in NYC?
-[Agent calls: weather_api]
-[Agent responds: "The weather in NYC is..."]
-
-✓ Captured: weather-query-1
-
-> Summarize this document
-[Agent calls: read_file, summarize]
-[Agent responds: "Here's a summary..."]
-
-✓ Captured: document-summary-1
-
-^C
-
-Recording stopped. Generated 2 test cases:
-  - tests/generated/weather-query-1.yaml
-  - tests/generated/document-summary-1.yaml
-```
-
----
-
-## Result
-
-Go from **5 manual tests → 500 comprehensive tests** in minutes.
-
----
-
-## Best Practices
-
-### Start with good seed tests
-
-The quality of generated tests depends on your seed. Write a few high-quality tests first.
-
-### Use focus for targeted expansion
+Every generated suite writes a report file:
 
 ```bash
-# Focus on error handling
-evalview expand tests/api-test.yaml --count 50 --focus "error scenarios, timeouts, invalid inputs"
-
-# Focus on edge cases
-evalview expand tests/parser-test.yaml --count 30 --focus "edge cases, unicode, empty values"
+tests/generated/generated.report.json
 ```
 
-### Review generated tests
-
-Always review generated tests before committing. Remove duplicates and irrelevant variations.
-
-### Use recording for real-world scenarios
-
-Recording captures actual usage patterns that you might not think to test manually.
-
----
-
-## CLI Reference
-
-### `evalview expand`
+Turn it into a PR comment:
 
 ```bash
-evalview expand TEST_FILE [OPTIONS]
+evalview ci comment --results tests/generated/generated.report.json --dry-run
+```
+
+The comment includes:
+- discovered tools
+- generated behavior paths
+- coverage gaps
+- approval instructions
+
+## Recommended Flow
+
+### Cold start
+
+```bash
+evalview generate --agent http://localhost:8000
+evalview ci comment --results tests/generated/generated.report.json --dry-run
+evalview snapshot tests/generated --approve-generated
+evalview check tests/generated
+```
+
+### Existing traffic
+
+```bash
+evalview generate --from-log traffic.jsonl
+evalview snapshot tests/generated --approve-generated
+evalview check tests/generated
+```
+
+## Important Options
+
+```bash
+evalview generate [OPTIONS]
 
 Options:
-  --count N        Number of variations to generate (default: 10)
-  --focus TEXT     Focus on specific scenarios
-  --output DIR     Output directory (default: tests/generated/)
+  --agent URL                  Agent endpoint URL
+  --from-log PATH              Build suite from logs instead of live probing
+  --log-format FORMAT          auto|jsonl|openai|evalview
+  --budget N                   Max probe runs or imported entries
+  --out DIR                    Output directory (default: tests/generated)
+  --seed FILE                  Newline-delimited seed prompts
+  --include-tools LIST         Focus on specific tools
+  --exclude-tools LIST         Avoid specific tools
+  --allow-live-side-effects    Allow side-effecting prompts
+  --dry-run                    Preview without writing files
 ```
 
-### `evalview record`
+## What It Does Well
 
-```bash
-evalview record [OPTIONS]
+- zero-to-suite onboarding
+- tool-path clustering
+- clarification and multi-turn draft detection
+- schema-aware probing when tool discovery is available
+- safe-mode probing by default
 
-Options:
-  --interactive    Interactive recording mode
-  --output DIR     Output directory (default: tests/generated/)
-```
+## Current Limits
 
----
+- generated assertions are conservative by design
+- multi-turn generation is currently strongest for clarification-followup flows
+- safety contracts are inferred heuristically unless the tool schema is explicit
 
-## Related Documentation
+That is intentional. EvalView generates draft regression tests, not blind truth claims.
 
-- [CLI Reference](CLI_REFERENCE.md)
-- [Getting Started](GETTING_STARTED.md)
+## Relationship to Other Commands
+
+- `generate`: create the first draft suite
+- `capture`: record real interactions as tests
+- `expand`: create variations from an existing seed test
+- `record`: interactive one-by-one test recording
+
+Use `generate` for onboarding, `capture` for real traffic, and `expand` when you already have a strong seed test.

@@ -110,6 +110,7 @@ Options:
   -t, --test TEXT     Snapshot only this specific test
   -n, --notes TEXT    Notes about this snapshot
   --variant TEXT      Save as named variant (max 5 per test)
+  --approve-generated Approve generated draft tests before snapshotting
 ```
 
 ### Examples
@@ -118,6 +119,7 @@ Options:
 evalview snapshot                           # Snapshot all passing tests
 evalview snapshot --test "my-test"          # Snapshot one test
 evalview snapshot --variant v2             # Save alternate acceptable behavior
+evalview snapshot tests/generated --approve-generated
 ```
 
 ---
@@ -148,6 +150,43 @@ evalview check --test "my-test"             # Check one test
 evalview check --json --fail-on REGRESSION  # CI mode
 evalview check --dry-run                    # Preview plan, no API calls
 evalview check --budget 0.50               # Cap spend at $0.50
+```
+
+## `evalview generate`
+
+Generate a draft regression suite from a live agent or existing traffic logs.
+
+```bash
+evalview generate [OPTIONS]
+
+Options:
+  --agent URL                  Agent endpoint URL
+  --adapter TEXT               Adapter type (default: config or http)
+  --budget N                   Maximum probe runs / imported entries
+  --out DIR                    Output directory (default: tests/generated)
+  --seed FILE                  Newline-delimited seed prompts
+  --from-log PATH              Generate from a log file instead of live probing
+  --log-format FORMAT          auto|jsonl|openai|evalview
+  --include-tools TEXT         Comma-separated tool names to focus on
+  --exclude-tools TEXT         Comma-separated tool names to avoid
+  --allow-live-side-effects    Allow side-effecting prompts
+  --timeout FLOAT              Probe timeout in seconds
+  --dry-run                    Preview without writing files
+```
+
+### Examples
+
+```bash
+evalview generate --agent http://localhost:8000
+evalview generate --from-log traffic.jsonl
+evalview generate --agent http://localhost:8000 --include-tools search,calendar
+evalview generate --dry-run
+```
+
+Generated suites are draft-only until approved:
+
+```bash
+evalview snapshot tests/generated --approve-generated
 ```
 
 ---

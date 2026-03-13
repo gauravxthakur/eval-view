@@ -24,6 +24,7 @@ from evalview.commands.add_cmd import add
 from evalview.commands.demo_cmd import demo
 from evalview.commands.judge_cmd import judge
 from evalview.commands.expand_cmd import expand
+from evalview.commands.generate_cmd import generate
 from evalview.commands.trends_cmd import trends
 from evalview.commands.golden_cmd import golden
 from evalview.commands.telemetry_cmd import telemetry
@@ -53,6 +54,7 @@ def main(ctx: click.Context) -> None:
     \b
     New here? Start with:
       capture --agent <url>   Record real traffic as tests  ← best first step
+      generate --agent <url>  Draft a regression suite from live probing
       snapshot                Save as your regression baseline
       check                   Catch regressions after every change
 
@@ -73,6 +75,7 @@ def main(ctx: click.Context) -> None:
     Explore & Learn:
       chat                    Interactive AI assistant for eval guidance
       gym                     Practice agent eval patterns
+      generate                Draft a suite from agent probing
 
     \b
     Reports:
@@ -126,6 +129,7 @@ main.add_command(add)
 main.add_command(demo)
 main.add_command(judge)
 main.add_command(expand)
+main.add_command(generate)
 main.add_command(trends)
 main.add_command(golden)
 main.add_command(telemetry)

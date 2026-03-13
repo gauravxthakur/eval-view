@@ -1,10 +1,12 @@
 """Snapshot command — run tests and save passing results as baseline."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING
 
 import click
+import yaml
 
 from evalview.commands.shared import (
     console,
@@ -61,13 +63,52 @@ def _save_snapshot_results(
     return saved_count
 
 
+def _is_generated_draft(test_case) -> bool:
+    meta = test_case.meta or {}
+    return meta.get("generated_by") == "evalview generate" and meta.get("review_status", "draft") != "approved"
+
+
+def _approve_generated_tests(test_cases: List) -> None:
+    """Mark generated draft tests as approved in their YAML source files."""
+    approved_at = datetime.now(timezone.utc).isoformat()
+    for test_case in test_cases:
+        source_file = getattr(test_case, "source_file", None)
+        if not source_file:
+            continue
+
+        path = Path(source_file)
+        if not path.exists():
+            continue
+
+        original = path.read_text(encoding="utf-8")
+        header_lines = []
+        body_lines = original.splitlines()
+        while body_lines and body_lines[0].startswith("#"):
+            header_lines.append(body_lines.pop(0))
+        if body_lines and body_lines[0] == "":
+            header_lines.append(body_lines.pop(0))
+
+        data = yaml.safe_load("\n".join(body_lines)) or {}
+        meta = dict(data.get("meta") or {})
+        meta["review_status"] = "approved"
+        meta["approved_at"] = approved_at
+        data["meta"] = meta
+
+        serialized = yaml.safe_dump(data, sort_keys=False, allow_unicode=False)
+        prefix = "\n".join(header_lines)
+        if prefix:
+            serialized = prefix + "\n" + serialized
+        path.write_text(serialized, encoding="utf-8")
+
+
 @click.command("snapshot")
 @click.argument("test_path", default="tests", type=click.Path(exists=True))
 @click.option("--notes", "-n", help="Notes about this snapshot")
 @click.option("--test", "-t", help="Snapshot only this specific test (by name)")
 @click.option("--variant", help="Save as a named variant for non-deterministic agents (max 5 per test)")
+@click.option("--approve-generated", is_flag=True, help="Approve generated draft tests before snapshotting them.")
 @track_command("snapshot")
-def snapshot(test_path: str, notes: str, test: str, variant: str):
+def snapshot(test_path: str, notes: str, test: str, variant: str, approve_generated: bool):
     """Run tests and snapshot passing results as baseline.
 
     This is the simple workflow: snapshot → check → fix → snapshot.
@@ -115,6 +156,22 @@ def snapshot(test_path: str, notes: str, test: str, variant: str):
         if not test_cases:
             console.print(f"[red]❌ No test found with name: {test}[/red]\n")
             return
+
+    draft_generated = [tc for tc in test_cases if _is_generated_draft(tc)]
+    if draft_generated and not approve_generated:
+        console.print("[yellow]Generated draft tests require approval before snapshotting.[/yellow]")
+        for test_case in draft_generated[:8]:
+            console.print(f"  • {test_case.name}")
+        console.print("\n[dim]Review the generated YAML, then run: evalview snapshot "
+                      f"{test_path} --approve-generated[/dim]\n")
+        return
+    if draft_generated and approve_generated:
+        _approve_generated_tests(draft_generated)
+        for test_case in draft_generated:
+            if test_case.meta is None:
+                test_case.meta = {}
+            test_case.meta["review_status"] = "approved"
+        console.print(f"[green]✓ Approved {len(draft_generated)} generated test(s)[/green]\n")
 
     # Run tests
     console.print(f"[cyan]Running {len(test_cases)} test(s)...[/cyan]\n")

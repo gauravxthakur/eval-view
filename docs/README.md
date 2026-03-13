@@ -15,6 +15,7 @@ If you're new:
 | I want to… | Read this first | Then |
 |------------|-----------------|------|
 | Get EvalView running quickly | [Getting Started](GETTING_STARTED.md) | [CLI Reference](CLI_REFERENCE.md) |
+| Go from zero tests to a draft suite | [Test Generation](TEST_GENERATION.md) | [CI/CD Integration](CI_CD.md) |
 | Understand regression detection | [Golden Traces](GOLDEN_TRACES.md) | [Evaluation Metrics](EVALUATION_METRICS.md) |
 | Test a specific framework | [Framework Support](FRAMEWORK_SUPPORT.md) | the matching quick start below |
 | Set up CI/CD | [CI/CD Integration](CI_CD.md) | [Golden Traces](GOLDEN_TRACES.md) |
@@ -41,7 +42,7 @@ If you're new:
 | [Suite Types](SUITE_TYPES.md) | Separate capability tests from regression tests |
 | [Behavior Coverage](BEHAVIOR_COVERAGE.md) | Track gaps in the behaviors you test |
 | [Cost Tracking](COST_TRACKING.md) | Understand token and dollar usage |
-| [Test Generation](TEST_GENERATION.md) | Expand a seed test into broader coverage |
+| [Test Generation](TEST_GENERATION.md) | Generate a draft suite from an agent or logs |
 | [Trace Specification](TRACE_SPEC.md) | Execution trace format used across adapters |
 
 ## Frameworks

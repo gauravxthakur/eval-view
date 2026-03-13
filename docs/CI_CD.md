@@ -6,6 +6,34 @@
 
 EvalView is CLI-first. You can run it locally or add to CI.
 
+## Review Generated Suites in PRs
+
+If you use `evalview generate`, every run writes a machine-readable suite report:
+
+```bash
+tests/generated/generated.report.json
+```
+
+Turn that into a PR comment:
+
+```bash
+evalview ci comment --results tests/generated/generated.report.json
+```
+
+The generated-suite comment includes:
+- discovered tools
+- draft behavior paths
+- coverage gaps
+- approval instructions for `snapshot --approve-generated`
+
+Recommended flow:
+
+```bash
+evalview generate --agent http://localhost:8000
+evalview ci comment --results tests/generated/generated.report.json
+evalview snapshot tests/generated --approve-generated
+```
+
 ---
 
 ## GitHub Action (Recommended)
