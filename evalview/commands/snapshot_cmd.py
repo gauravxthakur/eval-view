@@ -101,6 +101,22 @@ def _approve_generated_tests(test_cases: List) -> None:
         path.write_text(serialized, encoding="utf-8")
 
 
+def _suggest_generated_snapshot_path(test_path: str, test_cases: List) -> str:
+    """Suggest the narrowest useful path for approving generated drafts."""
+    roots = {
+        str(Path(getattr(test_case, "source_file")).parent)
+        for test_case in test_cases
+        if getattr(test_case, "source_file", None)
+    }
+    if len(roots) == 1:
+        only_root = next(iter(roots))
+        try:
+            return str(Path(only_root).relative_to(Path.cwd()))
+        except ValueError:
+            return only_root
+    return test_path
+
+
 def _summarize_mixed_targets(test_cases: List, config) -> tuple[list[str], list[str]]:
     """Return distinct endpoints and adapters represented in the selected tests."""
     config_endpoint = getattr(config, "endpoint", None) if config else None
@@ -196,11 +212,12 @@ def snapshot(test_path: str, notes: str, test: str, variant: str, approve_genera
 
     draft_generated = [tc for tc in test_cases if _is_generated_draft(tc)]
     if draft_generated and not approve_generated:
+        suggested_path = _suggest_generated_snapshot_path(test_path, draft_generated)
         console.print("[yellow]Generated draft tests require approval before snapshotting.[/yellow]")
         for test_case in draft_generated[:8]:
             console.print(f"  • {test_case.name}")
         console.print("\n[dim]Review the generated YAML, then run: evalview snapshot "
-                      f"{test_path} --approve-generated[/dim]\n")
+                      f"{suggested_path} --approve-generated[/dim]\n")
         return
     if draft_generated and approve_generated:
         _approve_generated_tests(draft_generated)

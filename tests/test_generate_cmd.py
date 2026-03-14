@@ -140,6 +140,8 @@ def test_generate_writes_clustered_draft_suite(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.output
     out_dir = tmp_path / "tests" / "generated"
     assert out_dir.exists()
+    assert "generated.report.json" in result.output
+    assert "HTML report" in result.output
 
     yaml_files = sorted(out_dir.glob("*.yaml"))
     assert len(yaml_files) >= 4

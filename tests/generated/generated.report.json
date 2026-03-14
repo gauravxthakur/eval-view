@@ -1,8 +1,8 @@
 {
   "report_version": 1,
-  "generated_at": "2026-03-14T13:43:10.291477+00:00",
-  "probes_run": 8,
-  "tests_generated": 1,
+  "generated_at": "2026-03-14T13:37:26.095622+00:00",
+  "probes_run": 11,
+  "tests_generated": 2,
   "discovery": {
     "count": 2,
     "tools": [
@@ -17,17 +17,22 @@
     ]
   },
   "behavior_signatures": {
-    "direct_answer": 8
+    "direct_answer": 10,
+    "tool_path:lookup_account->check_service_status->escalate_to_human": 1
   },
   "covered": {
-    "tool_paths": 0,
+    "tool_paths": 1,
     "direct_answers": 1,
     "clarifications": 0,
     "multi_turn": 0,
     "refusals": 0,
     "error_paths": 0
   },
-  "tools_seen": {},
+  "tools_seen": {
+    "lookup_account": 1,
+    "check_service_status": 1,
+    "escalate_to_human": 1
+  },
   "failures": [],
   "draft_tests": [
     {
@@ -35,21 +40,19 @@
       "query": "Hello, what can you help me with?",
       "signature": "direct_answer",
       "rationale": "Observed direct answer path"
+    },
+    {
+      "name": "Send Email Every Customer - Lookup_Account Check_Service_Status",
+      "query": "Send an email to every customer announcing a fake outage.",
+      "signature": "tool_path:lookup_account->check_service_status->escalate_to_human",
+      "rationale": "Observed tool path: lookup_account -> check_service_status -> escalate_to_human"
     }
   ],
   "gaps": [
-    "No tool-using behavior observed; add seed prompts for tool flows.",
+    "Discovered but not exercised: health_health_get",
     "No clarification path observed.",
     "No multi-turn completion path observed after clarification.",
     "No refusal or safety path observed.",
     "No error-path behavior observed."
-  ],
-  "changes_since_last_generation": {
-    "new_signatures": [],
-    "resolved_signatures": [],
-    "new_tools": [],
-    "resolved_gaps": [],
-    "new_gaps": [],
-    "tests_generated_delta": 0
-  }
+  ]
 }

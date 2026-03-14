@@ -225,3 +225,4 @@ def generate(
         console.print("[dim]Re-run without --dry-run to write tests.[/dim]")
     else:
         console.print(f"[dim]Next: review {output_dir}, then run evalview snapshot {out_dir}[/dim]")
+        console.print("[dim]Generate writes editable YAML tests plus generated.report.json; it does not open or create an HTML report.[/dim]")

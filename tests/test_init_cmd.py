@@ -33,9 +33,10 @@ def test_init_generate_path_uses_isolated_onboarding_folder(monkeypatch, tmp_pat
 
     assert result.exit_code == 0, result.output
     assert "tests/generated-from-init/" in result.output
-    assert "evalview snapshot tests/generated-from-init" in result.output
+    assert "evalview snapshot tests/generated-from-init --approve-generated" in result.output
     assert "evalview check tests/generated-from-init" in result.output
     assert "tests/test-cases/" not in result.output
+    assert "Only 2 distinct behavior path was discovered" not in result.output
 
 
 def test_init_updates_stale_existing_config(monkeypatch, tmp_path):
@@ -72,3 +73,27 @@ model:
     assert updated["endpoint"] == "http://localhost:8000/execute"
     assert updated["adapter"] == "http"
     assert updated["model"]["name"] == "claude-sonnet-4-6"
+
+
+def test_init_explains_single_draft_as_single_behavior_path(monkeypatch, tmp_path):
+    """Init should explain why one generated draft can still be expected."""
+    from evalview.commands.init_cmd import init
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("evalview.commands.init_cmd._detect_agent_endpoint", lambda: "http://localhost:8000/execute")
+    monkeypatch.setattr("evalview.commands.init_cmd._detect_model", lambda: "claude-sonnet-4-6")
+    monkeypatch.setattr(
+        "evalview.commands.init_cmd._generate_init_draft_suite",
+        lambda endpoint, out_dir: (
+            1,
+            {"covered": {"tool_paths": 0, "direct_answers": 1, "multi_turn": 0, "clarifications": 0, "refusals": 0, "error_paths": 0}},
+        ),
+    )
+    monkeypatch.setattr("evalview.commands.init_cmd._create_demo_agent", lambda base_path: None)
+
+    runner = CliRunner()
+    result = runner.invoke(init, ["--dir", str(tmp_path)], input="2\n")
+
+    assert result.exit_code == 0, result.output
+    assert "Only 1 distinct behavior path was discovered during the lighter init flow" in result.output
+    assert "one representative draft test" in result.output

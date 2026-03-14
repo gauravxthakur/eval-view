@@ -740,6 +740,17 @@ model:
         n, report = _generate_init_draft_suite(endpoint, init_generated_dir)
         if n > 0:
             covered = report.get("covered", {})
+            distinct_paths = sum(
+                int(covered.get(key, 0) or 0)
+                for key in (
+                    "tool_paths",
+                    "direct_answers",
+                    "clarifications",
+                    "multi_turn",
+                    "refusals",
+                    "error_paths",
+                )
+            )
             console.print(f"[green]✅ Generated {n} draft test case(s) in tests/generated-from-init/[/green]")
             console.print(
                 "[dim]   This folder is isolated from your existing tests so snapshot only targets these drafts.[/dim]"
@@ -751,8 +762,11 @@ model:
             )
             if n == 1:
                 console.print(
-                    "[dim]   Only one distinct behavior path was discovered. "
-                    "Use evalview generate --budget 20 for broader coverage.[/dim]"
+                    f"[dim]   Only {distinct_paths or 1} distinct behavior path was discovered "
+                    "during the lighter init flow, so EvalView kept one representative draft test.[/dim]"
+                )
+                console.print(
+                    "[dim]   Use evalview generate --budget 20 for broader coverage.[/dim]"
                 )
         else:
             console.print("[yellow]⚠️  Could not reach agent to generate draft tests.[/yellow]")
@@ -804,7 +818,7 @@ model:
         )
         step4 = (
             f"[bold]→[/bold] Capture a baseline for just these drafts\n"
-            f"   [cyan]evalview snapshot tests/generated-from-init[/cyan]{snapshot_suffix}"
+            f"   [cyan]evalview snapshot tests/generated-from-init --approve-generated[/cyan]{snapshot_suffix}"
         )
         step5 = (
             "[bold]→[/bold] Check these drafts for regressions anytime\n"
