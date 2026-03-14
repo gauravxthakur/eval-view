@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import click
 import httpx
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from evalview.commands.shared import console, _detect_agent_endpoint
 from evalview.core.project_state import ProjectStateStore

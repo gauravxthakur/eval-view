@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import httpx
-import yaml
+import yaml  # type: ignore[import-untyped]
 from dotenv import load_dotenv
 from rich.console import Console
 

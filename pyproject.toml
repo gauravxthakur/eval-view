@@ -162,6 +162,10 @@ ignore_errors = true
 module = "evalview.telemetry.*"
 ignore_errors = true
 
+[[tool.mypy.overrides]]
+module = "yaml"
+ignore_missing_imports = true
+
 # pytest_plugin imports pytest internals whose stubs use match statements
 # (Python 3.10+), which mypy rejects under python_version = "3.9".
 [[tool.mypy.overrides]]

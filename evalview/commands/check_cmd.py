@@ -61,8 +61,20 @@ def _compute_check_exit_code(
 def _summarize_check_targets(test_cases: List[Any], config: Any) -> tuple[list[str], list[str]]:
     config_endpoint = getattr(config, "endpoint", None) if config else None
     config_adapter = getattr(config, "adapter", None) if config else None
-    endpoints = sorted({(tc.endpoint or config_endpoint) for tc in test_cases if (tc.endpoint or config_endpoint)})
-    adapters = sorted({(tc.adapter or config_adapter) for tc in test_cases if (tc.adapter or config_adapter)})
+    endpoints = sorted(
+        {
+            str(endpoint)
+            for endpoint in ((tc.endpoint or config_endpoint) for tc in test_cases)
+            if endpoint is not None
+        }
+    )
+    adapters = sorted(
+        {
+            str(adapter)
+            for adapter in ((tc.adapter or config_adapter) for tc in test_cases)
+            if adapter is not None
+        }
+    )
     return endpoints, adapters
 
 

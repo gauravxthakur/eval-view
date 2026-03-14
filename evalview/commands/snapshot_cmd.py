@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 import click
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from evalview.commands.shared import (
     console,

@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Sequence, Set
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 import httpx
 
 from evalview.adapters.base import AgentAdapter

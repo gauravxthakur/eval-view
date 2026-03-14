@@ -1,0 +1,26 @@
+# EvalView Configuration for HuggingFace Spaces
+#
+# This example tests a public HuggingFace Space chatbot.
+# Replace with your own Space URL to test your agent.
+
+adapter: huggingface
+
+# Space URL - supports multiple formats:
+# - "username/space-name"
+# - "https://huggingface.co/spaces/username/space-name"
+# - "https://username-space-name.hf.space"
+endpoint: meta-llama/Llama-3.2-3B-Instruct
+
+# Timeout in seconds (longer for AI inference + cold starts)
+timeout: 120
+
+# Optional: Specify the Gradio function to call
+# Leave empty to auto-detect (recommended)
+# function_name: chat
+
+# Scoring weights (optional)
+scoring:
+  weights:
+    tool_accuracy: 0.3
+    output_quality: 0.5
+    sequence: 0.2

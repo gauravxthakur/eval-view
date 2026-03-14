@@ -1,0 +1,10 @@
+adapter: openai-assistants
+# assistant_id will be read from OPENAI_ASSISTANT_ID env var
+# If not set, EvalView will offer to create one for you!
+timeout: 120
+
+model:
+  name: gpt-4o
+
+# Test cases location
+test_dir: test-cases
