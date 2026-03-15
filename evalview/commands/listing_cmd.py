@@ -17,7 +17,7 @@ from evalview.telemetry.decorators import track_command
 # list
 # ---------------------------------------------------------------------------
 
-@click.command("list")
+@click.command("list", hidden=True)
 @click.option("--pattern", default="*.yaml", help="Test case file pattern (default: *.yaml)")
 @click.option("--detailed", is_flag=True, help="Show detailed information for each test")
 @track_command("list")
@@ -72,7 +72,7 @@ async def _list_async(pattern: str, detailed: bool):
 # adapters
 # ---------------------------------------------------------------------------
 
-@click.command("adapters")
+@click.command("adapters", hidden=True)
 @track_command("adapters")
 def adapters():
     """List all available adapters."""
@@ -116,7 +116,7 @@ def adapters():
 # report
 # ---------------------------------------------------------------------------
 
-@click.command("report")
+@click.command("report", hidden=True)
 @click.argument("results_file", type=click.Path(exists=True))
 @click.option("--detailed", is_flag=True, help="Show detailed results for each test case")
 @click.option("--html", type=click.Path(), help="Generate HTML report to specified path")
@@ -184,7 +184,7 @@ def _find_results_file(run_id: str) -> Optional[Path]:
     return None
 
 
-@click.command("view")
+@click.command("view", hidden=True)
 @click.argument("run_id", required=False)
 @click.option("-t", "--test", help="Filter by test name (substring match)")
 @click.option("--llm-only", is_flag=True, help="Only show LLM call spans")
@@ -307,7 +307,7 @@ def view(
 # connect
 # ---------------------------------------------------------------------------
 
-@click.command("connect")
+@click.command("connect", hidden=True)
 @click.option("--endpoint", help="Agent endpoint URL to test (optional - will auto-detect common ones)")
 @track_command("connect")
 def connect(endpoint: str):
@@ -673,7 +673,7 @@ async def _validate_adapter_async(endpoint: str, adapter_type: str, query: str, 
 # record
 # ---------------------------------------------------------------------------
 
-@click.command("record")
+@click.command("record", hidden=True)
 @click.option("--query", help="Query to record (non-interactive mode)")
 @click.option("--output", help="Output file path (default: auto-generate in tests/test-cases/)")
 @click.option(

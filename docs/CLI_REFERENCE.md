@@ -22,12 +22,13 @@ pip install evalview[all]
 
 ---
 
-## `evalview quickstart`
+## `evalview quickstart` (Deprecated)
 
-The fastest way to try EvalView. Creates a demo agent, test case, and runs everything.
+Legacy compatibility command for the old demo bootstrap flow. Prefer:
 
 ```bash
-evalview quickstart
+evalview demo   # See EvalView catch a regression immediately
+evalview init   # Connect your real agent and create a starter suite
 ```
 
 ---

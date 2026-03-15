@@ -54,17 +54,15 @@ def main(ctx: click.Context) -> None:
 
     \b
     New here? Start with:
-      capture --agent <url>   Record real traffic as tests  ← best first step
-      generate --agent <url>  Draft a regression suite from live probing
+      demo                    See regression detection in action (~30 seconds)
+      init                    Detect your agent and create a starter suite
       snapshot                Save as your regression baseline
       check                   Catch regressions after every change
 
     \b
     Check Your Agent:
-      run                     Run all tests with full evaluation
-      run --diff              Compare against golden baseline
-      demo                    See regression detection in action (~30 seconds)
-      quickstart              Set up a working example in 2 minutes
+      generate --agent <url>  Draft a broader suite from live probing
+      capture --agent <url>   Record real traffic as tests
 
     \b
     Golden Traces:
@@ -76,12 +74,11 @@ def main(ctx: click.Context) -> None:
     Explore & Learn:
       chat                    Interactive AI assistant for eval guidance
       gym                     Practice agent eval patterns
-      generate                Draft a suite from agent probing
 
     \b
     Reports:
-      report <file>           Generate report from results
-      view                    View specific test results
+      replay                  Open a trajectory diff for one test
+      visualize               Generate a visual HTML report from results
       trends                  Performance trends over time
 
     \b
@@ -95,6 +92,7 @@ def main(ctx: click.Context) -> None:
 
     \b
     Advanced:
+      run                     Direct evaluation runner with optional HTML reports
       skill                   Test Claude Code skills
       trace                   Trace LLM calls in scripts
       traces                  Query stored trace data

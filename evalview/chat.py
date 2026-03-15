@@ -151,7 +151,7 @@ evalview demo
 Shows a demo of regression detection.
 
 ```command
-evalview quickstart
+evalview demo
 ```
 Interactive setup wizard.
 
@@ -641,7 +641,7 @@ class ChatSession:
 
 
 VALID_EVALVIEW_COMMANDS = {
-    "demo", "run", "adapters", "quickstart", "list", "init",
+    "demo", "run", "adapters", "list", "init",
     "report", "chat", "connect", "expand", "golden", "judge",
     "record", "trends", "validate-adapter", "skill", "add", "baseline"
 }
@@ -949,7 +949,7 @@ async def run_chat(
                 console.print("\n[bold]EvalView CLI Cheatsheet:[/bold]")
                 console.print()
                 console.print("[bold cyan]Getting Started:[/bold cyan]")
-                console.print("  evalview quickstart        # Interactive setup wizard")
+                console.print("  evalview demo              # Live regression demo")
                 console.print("  evalview init              # Initialize in current directory")
                 console.print("  evalview demo              # See regression detection demo")
                 console.print()

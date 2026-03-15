@@ -918,10 +918,10 @@ def init(dir: str, interactive: bool, wizard: bool, ci: bool):
     _init_standard(dir, interactive)
 
 
-@click.command("quickstart")
+@click.command("quickstart", hidden=True)
 @track_command("quickstart")
 def quickstart():
-    """🚀 Quick start: Set up and run a demo in under 2 minutes."""
+    """Deprecated compatibility shim for the old quickstart flow."""
     import subprocess
     import atexit
     import time as time_module
@@ -930,8 +930,10 @@ def quickstart():
     from rich.live import Live
     from rich.panel import Panel
 
+    console.print("[yellow]`evalview quickstart` is deprecated.[/yellow]")
+    console.print("[dim]Use `evalview demo` for instant proof, or `evalview init` for real project setup.[/dim]\n")
     console.print("[blue]━━━ EvalView Quickstart ━━━[/blue]\n")
-    console.print("This will set up a working demo in under 2 minutes.\n")
+    console.print("Running the legacy quickstart flow for compatibility.\n")
 
     base_path = Path(".")
 
@@ -943,7 +945,8 @@ def quickstart():
     else:
         console.print("[bold]Step 1/4:[/bold] Demo agent already exists\n")
 
-    test_dir = base_path / "tests" / "test-cases"
+    quickstart_dir = base_path / "tests" / "quickstart-demo"
+    test_dir = quickstart_dir
     test_dir.mkdir(parents=True, exist_ok=True)
 
     test_files = [
@@ -1037,9 +1040,9 @@ thresholds:
             test_file.write_text(content)
 
     if created_tests:
-        console.print(f"[green]✅ {len(test_files)} test cases created[/green]\n")
+        console.print(f"[green]✅ {len(test_files)} quickstart test cases created in tests/quickstart-demo[/green]\n")
     else:
-        console.print("[bold]Step 2/4:[/bold] Test cases already exist\n")
+        console.print("[bold]Step 2/4:[/bold] Quickstart test cases already exist in tests/quickstart-demo\n")
 
     config_dir = base_path / ".evalview"
     config_dir.mkdir(exist_ok=True)
@@ -1294,15 +1297,14 @@ model:
 
         console.print("\n[bold]Next steps:[/bold]")
         console.print("  1. Connect your real agent:")
-        console.print("     [cyan]evalview connect[/cyan]  ← Auto-detect running agents")
-        console.print("     [dim]or edit .evalview/config.yaml manually[/dim]")
-        console.print("  2. Write or generate test cases:")
-        console.print("     [cyan]evalview expand your-test.yaml --count 20[/cyan]  ← generate variations from a seed")
-        console.print("     [cyan]evalview record --interactive[/cyan]              ← record live sessions as tests")
-        console.print("     [dim]or write YAML manually in tests/[/dim]")
-        console.print("  3. Run [cyan]evalview run[/cyan] for full results")
-        console.print("  4. See regression detection in action:")
-        console.print("     [cyan]evalview demo[/cyan]  ← snapshot + break + catch, live in 30 seconds")
+        console.print("     [cyan]evalview init[/cyan]  ← detect agent and create a starter suite")
+        console.print("  2. Save a baseline:")
+        console.print("     [cyan]evalview snapshot[/cyan]")
+        console.print("  3. Catch regressions after changes:")
+        console.print("     [cyan]evalview check[/cyan]")
+        console.print("  4. Need broader coverage later?")
+        console.print("     [cyan]evalview generate --agent http://localhost:8000[/cyan]")
+        console.print("     [cyan]evalview capture --agent http://localhost:8000[/cyan]")
 
         console.print()
         console.print("[dim]⭐ EvalView helped? Star us: [link=https://github.com/hidai25/eval-view]github.com/hidai25/eval-view[/link][/dim]\n")

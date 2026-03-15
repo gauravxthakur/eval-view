@@ -78,7 +78,7 @@ def get_project_context() -> str:
     if test_count > 0:
         context_parts.append(f"- Found {test_count} test case(s) in: {', '.join(test_locations)}")
     else:
-        context_parts.append("- No test cases found yet (use 'evalview init' or 'evalview quickstart')")
+        context_parts.append("- No test cases found yet (use 'evalview init' or 'evalview demo')")
 
     evalview_dir = Path(".evalview")
     if evalview_dir.exists():
@@ -109,7 +109,7 @@ def get_project_context() -> str:
         if (evalview_dir / "config.yaml").exists():
             context_parts.append("- Config file: .evalview/config.yaml")
     else:
-        context_parts.append("- EvalView not initialized (run 'evalview init' or 'evalview quickstart')")
+        context_parts.append("- EvalView not initialized (run 'evalview init' or 'evalview demo')")
 
     if os.path.isdir("examples"):
         example_dirs = [d for d in os.listdir("examples") if os.path.isdir(f"examples/{d}")]
