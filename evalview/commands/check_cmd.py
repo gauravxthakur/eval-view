@@ -105,6 +105,21 @@ def _should_auto_generate_report(
     return (not analysis.get("all_passed", False)) or bool(analysis.get("execution_failures", 0))
 
 
+def _judge_usage_summary() -> Dict[str, Any]:
+    """Return structured judge usage for report rendering."""
+    from evalview.core.llm_provider import judge_cost_tracker
+
+    total_tokens = judge_cost_tracker.total_input_tokens + judge_cost_tracker.total_output_tokens
+    return {
+        "call_count": judge_cost_tracker.call_count,
+        "input_tokens": judge_cost_tracker.total_input_tokens,
+        "output_tokens": judge_cost_tracker.total_output_tokens,
+        "total_tokens": total_tokens,
+        "total_cost": round(judge_cost_tracker.total_cost, 6),
+        "is_free": judge_cost_tracker.call_count > 0 and judge_cost_tracker.total_cost == 0,
+    }
+
+
 def _resolve_default_test_path(test_path: str) -> str:
     """Use the active onboarding/generation folder when the user omitted a path."""
     if test_path != "tests":
@@ -247,6 +262,8 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
     # Apply judge config from config.yaml (env vars / CLI flags take priority)
     from evalview.core.config import apply_judge_config
     apply_judge_config(config)
+    from evalview.core.llm_provider import judge_cost_tracker
+    judge_cost_tracker.reset()
 
     # Resolve semantic diff: explicit flag > config file > auto-enable.
     from evalview.core.semantic_diff import SemanticDiff
@@ -366,6 +383,7 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
             results=results,
             diffs=diff_list,
             golden_traces=golden_traces,
+            judge_usage=_judge_usage_summary(),
             output_path=effective_report_path,
             auto_open=not json_output,
             title="EvalView Check Report",

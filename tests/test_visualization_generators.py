@@ -88,6 +88,14 @@ def test_visual_report_shows_model_and_baseline_metadata(tmp_path):
         output_path=str(report_path),
         auto_open=False,
         golden_traces={"refund-flow": golden},
+        judge_usage={
+            "call_count": 2,
+            "input_tokens": 220,
+            "output_tokens": 44,
+            "total_tokens": 264,
+            "total_cost": 0.0012,
+            "is_free": False,
+        },
         title="EvalView Check Report",
     )
 
@@ -99,6 +107,9 @@ def test_visual_report_shows_model_and_baseline_metadata(tmp_path):
     assert "Baseline model: openai/gpt-4o-mini" in html
     assert "Execution Cost per Query" in html
     assert "Trace Cost" in html
+    assert "EvalView Judge Usage" in html
+    assert "$0.0012" in html
+    assert "264 total tokens across 2 judge calls" in html
 
 
 def test_visual_report_falls_back_for_missing_step_latency_and_baseline_model(tmp_path):
@@ -188,3 +199,4 @@ def test_visual_report_falls_back_for_missing_step_latency_and_baseline_model(tm
     assert '"cost": 0.002' in html
     assert "mock-support-agent" in html
     assert "Trace cost comes from the agent execution trace only" in html
+    assert "Baseline model: Not recorded in snapshot" in html

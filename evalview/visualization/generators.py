@@ -199,7 +199,7 @@ def _baseline_meta(golden_traces: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     models = [label for label, _ in model_counts.most_common()]
     return {
         "latest_created_display": latest_created,
-        "models_display": ", ".join(models) if models else "Unknown",
+        "models_display": ", ".join(models) if models else "Not recorded in snapshot",
     }
 
 
@@ -340,6 +340,7 @@ def generate_visual_report(
     compare_results: Optional[List[List["EvaluationResult"]]] = None,
     compare_labels: Optional[List[str]] = None,
     golden_traces: Optional[Dict[str, Any]] = None,
+    judge_usage: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Generate a self-contained visual HTML report.
 
@@ -476,6 +477,7 @@ def generate_visual_report(
         generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
         kpis=kpis,
         baseline=baseline,
+        judge_usage=judge_usage or {},
         traces=traces,
         diff_rows=diff_rows,
         timeline=timeline,
@@ -828,6 +830,31 @@ table tr:hover td{background:rgba(255,255,255,.02)}
       </div>
     </div>
 
+    {% if judge_usage and judge_usage.call_count %}
+    <div class="meta-row">
+      <div class="meta-card">
+        <div class="meta-label">EvalView Judge Usage</div>
+        <div class="meta-value">
+          {% if judge_usage.total_cost > 0 %}
+            ${{ judge_usage.total_cost }}
+          {% elif judge_usage.is_free %}
+            FREE
+          {% else %}
+            $0
+          {% endif %}
+        </div>
+        <div class="meta-sub">
+          {{ judge_usage.total_tokens }} total tokens across {{ judge_usage.call_count }} judge call{% if judge_usage.call_count != 1 %}s{% endif %}
+        </div>
+      </div>
+      <div class="meta-card">
+        <div class="meta-label">Judge Token Breakdown</div>
+        <div class="meta-value">in {{ judge_usage.input_tokens }} / out {{ judge_usage.output_tokens }}</div>
+        <div class="meta-sub">Separate from agent trace cost</div>
+      </div>
+    </div>
+    {% endif %}
+
     <div class="chart-row">
       <div class="card">
         <div class="card-title">Distribution</div>
@@ -875,6 +902,7 @@ table tr:hover td{background:rgba(255,255,255,.02)}
       </table>
       <div style="margin-top:12px;font-size:11px;color:var(--muted)">
         Trace cost comes from the agent execution trace only. Mock or non-metered tools will show <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:4px">$0</code> even when EvalView used a separate judge or local model during evaluation.
+        {% if judge_usage and judge_usage.call_count %} This check also used {{ judge_usage.call_count }} EvalView judge call{% if judge_usage.call_count != 1 %}s{% endif %} ({{ judge_usage.total_tokens }} tokens).{% endif %}
       </div>
     </div>
 
