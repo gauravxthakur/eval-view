@@ -55,6 +55,17 @@ evalview check       # Catch regressions after every change
 evalview demo        # See regression detection live (~30 seconds, no API key)
 ```
 
+**Want a real working agent?**
+
+Starter repo: [evalview-support-automation-template](https://github.com/hidai25/evalview-support-automation-template)  
+An LLM-backed support automation agent with built-in EvalView regression tests.
+
+```bash
+git clone https://github.com/hidai25/evalview-support-automation-template
+cd evalview-support-automation-template
+make run
+```
+
 **Other entry paths:**
 
 ```bash
@@ -156,7 +167,7 @@ Works with **LangGraph, CrewAI, OpenAI, Claude, Mistral, HuggingFace, Ollama, MC
 | Ollama | ✅ | ✅ |
 | Any HTTP API | ✅ | ✅ |
 
-[Framework details →](docs/FRAMEWORK_SUPPORT.md) | [Starter examples →](examples/)
+[Framework details →](docs/FRAMEWORK_SUPPORT.md) | [Flagship starter →](https://github.com/hidai25/evalview-support-automation-template) | [Starter examples →](examples/)
 
 ## CI/CD Integration
 
