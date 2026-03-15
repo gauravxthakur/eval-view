@@ -11,7 +11,7 @@ from evalview.commands.shared import console
 from evalview.telemetry.decorators import track_command
 
 
-@click.command("add")
+@click.command("add", hidden=True)
 @click.argument("pattern", required=False)
 @click.option("--tool", help="Tool name to use in the test")
 @click.option("--query", help="Query to use in the test")

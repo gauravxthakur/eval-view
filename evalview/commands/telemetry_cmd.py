@@ -11,7 +11,7 @@ from evalview.telemetry.config import (
 )
 
 
-@click.group()
+@click.group(hidden=True)
 def telemetry():
     """Manage anonymous usage telemetry.
 

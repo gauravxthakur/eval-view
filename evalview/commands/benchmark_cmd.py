@@ -14,7 +14,7 @@ from evalview.commands.shared import (
 from evalview.telemetry.decorators import track_command
 
 
-@click.command("benchmark")
+@click.command("benchmark", hidden=True)
 @click.argument(
     "domain",
     type=click.Choice(["rag", "coding", "customer-support", "research", "all"]),

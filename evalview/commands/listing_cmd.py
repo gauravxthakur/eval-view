@@ -558,7 +558,7 @@ async def _connect_async(endpoint: Optional[str]):
 # validate-adapter
 # ---------------------------------------------------------------------------
 
-@click.command("validate-adapter")
+@click.command("validate-adapter", hidden=True)
 @click.option("--endpoint", required=True, help="Endpoint URL to validate")
 @click.option(
     "--adapter",

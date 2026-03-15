@@ -63,6 +63,8 @@ def main(ctx: click.Context) -> None:
     Check Your Agent:
       generate --agent <url>  Draft a broader suite from live probing
       capture --agent <url>   Record real traffic as tests
+      compare                 Compare two agent endpoints on the same suite
+      import <log_file>       Convert production logs into EvalView tests
 
     \b
     Golden Traces:
@@ -93,6 +95,10 @@ def main(ctx: click.Context) -> None:
     \b
     Advanced:
       run                     Direct evaluation runner with optional HTML reports
+      login                   Connect to EvalView Cloud
+      logout                  Disconnect from EvalView Cloud
+      whoami                  Show current cloud login status
+      feedback                Open a pre-filled GitHub issue
       skill                   Test Claude Code skills
       trace                   Trace LLM calls in scripts
       traces                  Query stored trace data
