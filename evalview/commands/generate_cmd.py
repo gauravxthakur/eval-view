@@ -1,6 +1,7 @@
 """Generate command — draft a regression suite by probing an agent."""
 from __future__ import annotations
 
+import time
 from pathlib import Path
 import yaml  # type: ignore[import-untyped]
 
@@ -160,9 +161,9 @@ def generate(
     # Interactive budget selection when not explicitly provided
     if budget is None and from_log is None:
         console.print("[bold]How many tests to generate?[/bold]\n")
-        console.print("  [cyan]1.[/cyan] Quick    (~4 tests,  ~1 min)   [dim]← recommended[/dim]")
-        console.print("  [cyan]2.[/cyan] Standard (~8 tests,  ~2 min)")
-        console.print("  [cyan]3.[/cyan] Thorough (~20 tests, ~5 min)")
+        console.print("  [cyan]1.[/cyan] Quick    (~4 tests,  ~2 min)   [dim]← recommended[/dim]")
+        console.print("  [cyan]2.[/cyan] Standard (~8 tests,  ~5 min)")
+        console.print("  [cyan]3.[/cyan] Thorough (~20 tests, ~12 min)")
         console.print()
         choice = click.prompt("Choice", default="1", show_default=False).strip()
         budget_map = {"1": 4, "2": 8, "3": 20}
@@ -228,7 +229,11 @@ def generate(
     console.print()
 
     # Shared state for the probe progress spinner
-    _probe_status = {"spinner": None}
+    _probe_status: dict = {"spinner": None, "start_time": time.time()}
+
+    def _elapsed() -> str:
+        secs = int(time.time() - _probe_status["start_time"])
+        return f"{secs // 60}:{secs % 60:02d}"
 
     def _on_probe(num: int, total: int, query: str, status: str, tools: list) -> None:
         spinner = _probe_status.get("spinner")
@@ -248,9 +253,9 @@ def generate(
             console.print(f"[dim]  [green]✓[/green] [{num}/{total}] {query}[/dim]")
         # Start spinner for the next phase
         if num < total:
-            spinner = console.status(f"[dim]  Probing [{num + 1}/{total}]...[/dim]", spinner="dots")
+            spinner = console.status(f"[dim]  Probing [{num + 1}/{total}]... ({_elapsed()})[/dim]", spinner="dots")
         else:
-            spinner = console.status("[dim]  Building tests...[/dim]", spinner="dots")
+            spinner = console.status(f"[dim]  Building tests... ({_elapsed()})[/dim]", spinner="dots")
         spinner.start()
         _probe_status["spinner"] = spinner
 
@@ -362,7 +367,7 @@ def generate(
             replace_existing=not keep_old and not full_replace_confirmed,
         )
         ProjectStateStore().set_active_test_path(out_dir)
-        console.print(f"[green]✓ Saved {len(result.tests)} tests[/green]")
+        console.print(f"[green]✓ Saved {len(result.tests)} tests[/green] [dim]({_elapsed()} elapsed)[/dim]")
         console.print(f"[dim]Output:[/dim] {output_dir}")
         console.print(f"[dim]Files written:[/dim] {len(written)}")
         if full_replace_confirmed:
