@@ -316,32 +316,36 @@ class AgentTestGenerator:
                 if synthesis_count > 0:
                     self._synthesis_succeeded = True
 
-            # Multi-turn: generate a natural follow-up for tool-path and
-            # clarification probes.  This does NOT count against the budget —
-            # it enriches an existing probe into a two-turn conversation.
+            # Multi-turn: generate a natural follow-up and attach it to
+            # the SAME probe — so it becomes one test with 2 turns, not two
+            # separate tests.
             if probe.behavior_class in {"tool_path", "clarification"}:
                 if on_probe_complete:
                     on_probe_complete(probes_run, budget, "generating follow-up...", "info", [])
                 follow_up_probe = await self._generate_multi_turn_probe(probe)
                 if follow_up_probe is not None:
-                    signatures_seen[follow_up_probe.signature] += 1
                     tools_seen.update(follow_up_probe.tools)
-                    if follow_up_probe.signature not in clustered:
-                        clustered[follow_up_probe.signature] = follow_up_probe
-                        if on_probe_complete:
-                            on_probe_complete(
-                                probes_run, budget,
-                                f"multi-turn: {follow_up_probe.query[:50]}",
-                                "ok", follow_up_probe.tools,
-                            )
+                    # Enrich the original probe with multi-turn data
+                    probe.conversation_history = follow_up_probe.conversation_history
+                    probe.behavior_class = "multi_turn"
+                    probe.signature = self._build_signature("multi_turn", probe.tools)
+                    probe.rationale = follow_up_probe.rationale
+                    # Store the follow-up query for test case building
+                    probe._follow_up_query = follow_up_probe.query  # type: ignore[attr-defined]
+                    probe._follow_up_tools = follow_up_probe.tools  # type: ignore[attr-defined]
+                    # Re-index in clustered under the new signature
+                    clustered[probe.signature] = probe
+                    signatures_seen[probe.signature] += 1
+                    if on_probe_complete:
+                        on_probe_complete(
+                            probes_run, budget,
+                            f"+ follow-up: {follow_up_probe.query[:50]}",
+                            "ok", follow_up_probe.tools,
+                        )
                     logger.debug(
-                        "Multi-turn follow-up created: %s → %s",
+                        "Multi-turn enriched: %s → %s",
                         probe.query[:40], follow_up_probe.query[:40],
                     )
-                else:
-                    logger.debug("Multi-turn follow-up skipped for: %s", probe.query[:40])
-                    if on_probe_complete:
-                        on_probe_complete(probes_run, budget, "follow-up skipped (not meaningful)", "info", [])
 
             prioritized_candidates = list(self._expand_probe_candidates(probe))
             for candidate in reversed(prioritized_candidates):
@@ -829,13 +833,17 @@ class AgentTestGenerator:
             generated=True,
         )
         if probe.behavior_class == "multi_turn" and probe.conversation_history:
-            # Turn 1: the original user query (from conversation history)
-            # Turn 2: the LLM-generated follow-up (now in probe.query)
-            original_query = probe.conversation_history[0].get("content", probe.query)
-            test_case.input = TestInput(query=original_query)
+            follow_up_query = getattr(probe, "_follow_up_query", None) or _SAFE_FOLLOW_UP
+            # Include follow-up tools in expected if present
+            follow_up_tools = getattr(probe, "_follow_up_tools", None) or []
+            if follow_up_tools:
+                all_tools = list(probe.tools) + list(follow_up_tools)
+                expected.tools = all_tools
+                if len(all_tools) > 1:
+                    expected.sequence = all_tools
             test_case.turns = [
-                ConversationTurn(query=original_query),
                 ConversationTurn(query=probe.query),
+                ConversationTurn(query=follow_up_query),
             ]
         return test_case
 

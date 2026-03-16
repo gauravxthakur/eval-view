@@ -468,8 +468,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .badge-pass { background-color: var(--pass-color); }
         .badge-fail { background-color: var(--fail-color); }
         .test-card { margin-bottom: 1rem; }
-        .test-card .card-header { cursor: pointer; user-select: none; }
-        .test-card .card-header:hover { background-color: #f1f5f9; }
+        .test-card .card-header { cursor: pointer; user-select: none; transition: background 0.15s; }
+        .test-card .card-header:hover { background-color: #e2e8f0; }
+        .test-card .card-header::after {
+            content: "▶ Click to expand";
+            font-size: 0.7rem;
+            color: #94a3b8;
+            margin-left: auto;
+            padding-left: 1rem;
+        }
+        .test-card .card-header[aria-expanded="true"]::after {
+            content: "▼ Click to collapse";
+        }
         .score-badge { font-size: 1.25rem; font-weight: 600; }
         .tool-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
         .tool-badge { font-size: 0.75rem; padding: 0.25rem 0.5rem; }
@@ -523,7 +533,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             cursor: pointer;
             transition: background 0.15s;
         }
-        .span-row:hover { background: #f1f5f9; }
+        .span-row:hover { background: #e2e8f0; }
+        .span-row::after {
+            content: "▶";
+            font-size: 0.65rem;
+            color: #94a3b8;
+            transition: transform 0.15s;
+        }
+        .span-row[aria-expanded="true"]::after { transform: rotate(90deg); }
         .span-row.error-span { border-left: 3px solid #ef4444; }
         .span-kind {
             font-size: 0.65rem;
