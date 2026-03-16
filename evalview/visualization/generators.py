@@ -145,23 +145,35 @@ def _kpis(results: List["EvaluationResult"]) -> Dict[str, Any]:
     }
 
 
+def _clean_model_name(model_id: str, provider: Optional[str] = None) -> str:
+    """Format a model name for display — human-readable, no internal prefixes."""
+    # Skip transport-layer "providers" that aren't real LLM providers
+    non_providers = {"http", "mcp", "unknown", "none", ""}
+    if provider and provider.lower() not in non_providers:
+        return f"{provider}/{model_id}"
+    return model_id
+
+
 def _extract_models(result: "EvaluationResult") -> List[str]:
-    """Extract best-effort model labels from a result."""
+    """Extract best-effort model labels from a result (deduplicated by model ID)."""
+    seen_ids: set[str] = set()
     labels: list[str] = []
     trace = result.trace
     model_id = getattr(trace, "model_id", None)
     model_provider = getattr(trace, "model_provider", None)
     if model_id:
-        labels.append(f"{model_provider}/{model_id}" if model_provider else str(model_id))
+        seen_ids.add(model_id)
+        labels.append(_clean_model_name(model_id, model_provider))
 
     trace_context = getattr(trace, "trace_context", None)
     if trace_context:
         for span in trace_context.spans:
-            if span.llm and span.llm.model:
+            if span.llm and span.llm.model and span.llm.model not in seen_ids:
+                seen_ids.add(span.llm.model)
                 provider = span.llm.provider or model_provider
-                labels.append(f"{provider}/{span.llm.model}" if provider else span.llm.model)
+                labels.append(_clean_model_name(span.llm.model, provider))
 
-    return list(dict.fromkeys(label for label in labels if label))
+    return labels
 
 
 def _collect_models(results: List["EvaluationResult"]) -> List[str]:
