@@ -237,7 +237,9 @@ def generate(
     def _format_gen_elapsed() -> str:
         elapsed = time.time() - _gen_start
         mins, secs = divmod(elapsed, 60)
-        return f"{int(mins):02d}:{int(secs):02d}"
+        secs_int = int(secs)
+        ms = int((secs - secs_int) * 1000)
+        return f"{int(mins):02d}:{secs_int:02d}.{ms:03d}"
 
     def _timer_thread() -> None:
         """Background thread that reprints the status line every second."""
