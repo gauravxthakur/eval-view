@@ -327,6 +327,7 @@ class AgentTestGenerator:
                 if follow_up_probe is not None:
                     tools_seen.update(follow_up_probe.tools)
                     # Enrich the original probe with multi-turn data
+                    old_sig = probe.signature
                     probe.conversation_history = follow_up_probe.conversation_history
                     probe.behavior_class = "multi_turn"
                     probe.signature = self._build_signature("multi_turn", probe.tools)
@@ -334,7 +335,8 @@ class AgentTestGenerator:
                     # Store the follow-up query for test case building
                     probe._follow_up_query = follow_up_probe.query  # type: ignore[attr-defined]
                     probe._follow_up_tools = follow_up_probe.tools  # type: ignore[attr-defined]
-                    # Re-index in clustered under the new signature
+                    # Replace old signature with new multi-turn signature
+                    clustered.pop(old_sig, None)
                     clustered[probe.signature] = probe
                     signatures_seen[probe.signature] += 1
                     if on_probe_complete:
@@ -400,8 +402,16 @@ class AgentTestGenerator:
                 previous_report,
                 result.report,
             )
+        used_names: Set[str] = set()
         for test in result.tests:
             file_name = self._slugify(test.name)[:60] or "generated-test"
+            # Dedupe filenames — append suffix if collision
+            base = file_name
+            counter = 2
+            while file_name in used_names:
+                file_name = f"{base[:55]}-{counter}"
+                counter += 1
+            used_names.add(file_name)
             path = out_dir / f"{file_name}.yaml"
             self._write_test_yaml(test, path)
             written.append(path)

@@ -577,7 +577,7 @@ def test_generate_suggests_live_endpoint_when_config_is_stale(monkeypatch, tmp_p
     )
 
     runner = CliRunner()
-    result = runner.invoke(generate, [])
+    result = runner.invoke(generate, ["--budget", "4"])
 
     assert result.exit_code != 0
     assert "A different local agent is running at http://localhost:8000/execute" in result.output
