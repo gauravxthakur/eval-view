@@ -59,10 +59,11 @@ def _print_generated_test_preview(output_dir: Path, max_files: int = 2) -> None:
             data = {}
         meta = data.get("meta") or {}
         behavior = str(meta.get("behavior_class") or "unknown").replace("_", " ")
+        prompt_source = str(meta.get("prompt_source") or "unknown").replace("_", " ")
         turns = data.get("turns") or []
         turn_label = f"{len(turns)} turns" if turns else "single turn"
         console.print(f"[dim]{path}[/dim]")
-        console.print(f"[dim]Behavior: {behavior} | {turn_label}[/dim]")
+        console.print(f"[dim]Behavior: {behavior} | {turn_label} | source: {prompt_source}[/dim]")
         console.print(path.read_text(encoding="utf-8").rstrip())
         console.print()
     if len(yaml_files) > max_files:
@@ -175,6 +176,7 @@ def generate(
             include_tools=included,
             exclude_tools=excluded,
             allow_live_side_effects=allow_live_side_effects,
+            project_root=Path.cwd(),
         )
         entries = parse_log_file(Path(from_log), fmt=log_format, max_entries=budget)
         result = generator.generate_from_log_entries(entries)
@@ -188,6 +190,7 @@ def generate(
             include_tools=included,
             exclude_tools=excluded,
             allow_live_side_effects=allow_live_side_effects,
+            project_root=Path.cwd(),
         )
 
     if not result.tests:
@@ -210,6 +213,7 @@ def generate(
         include_tools=included,
         exclude_tools=excluded,
         allow_live_side_effects=allow_live_side_effects,
+        project_root=Path.cwd(),
     )
     output_dir = Path(out_dir)
 
@@ -266,6 +270,13 @@ def generate(
         for tool_name, count in tools_seen.items():
             console.print(f"  {tool_name}: {count}")
 
+    prompt_sources = result.report.get("prompt_sources", {})
+    if prompt_sources:
+        console.print()
+        console.print("[bold]Prompt sources[/bold]")
+        for source, count in prompt_sources.items():
+            console.print(f"  {source}: {count}")
+
     gaps = result.report.get("gaps", [])
     if gaps:
         console.print()
@@ -280,4 +291,6 @@ def generate(
         console.print(f"[dim]Next: review {output_dir}, then run evalview snapshot {out_dir}[/dim]")
         if keep_old:
             console.print("[dim]Used --keep-old, so older generated drafts in this folder were preserved.[/dim]")
+        if not allow_live_side_effects:
+            console.print("[dim]Safe mode blocked prompts aimed at side-effecting tools where possible.[/dim]")
         console.print("[dim]Generate writes editable YAML tests plus generated.report.json; it does not open or create an HTML report.[/dim]")

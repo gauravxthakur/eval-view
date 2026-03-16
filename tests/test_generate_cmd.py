@@ -125,6 +125,84 @@ class _FakeAdapterThatFails:
         raise RuntimeError("Connection refused. Is your agent running?\nEndpoint: http://localhost:8090/execute")
 
 
+class _NonProgressingFollowUpAdapter(_FakeAdapter):
+    async def execute(self, query: str, context=None):  # pragma: no cover - exercised via command
+        lowered = query.lower()
+        history = (context or {}).get("conversation_history", [])
+        if history and "use the most reasonable safe assumption and continue" in lowered:
+            now = datetime.now()
+            return ExecutionTrace(
+                session_id="test-session",
+                start_time=now,
+                end_time=now,
+                steps=[],
+                final_output="Please describe the support issue you need help with.",
+                metrics=ExecutionMetrics(total_cost=0.0, total_latency=36.0),
+            )
+        return await super().execute(query, context=context)
+
+
+class _DomainSeedAdapter:
+    async def discover_tools(self):  # pragma: no cover - exercised via command
+        return [
+            {
+                "name": "search_pain_history",
+                "description": "Search pain point history for a product or category",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "days": {"type": "integer"},
+                    },
+                    "required": ["query"],
+                },
+            }
+        ]
+
+    async def execute(self, query: str, context=None):  # pragma: no cover - exercised via command
+        now = datetime.now()
+        lowered = query.lower()
+
+        if "what can you help me with" in lowered:
+            output = (
+                'You can ask things like "What are the top pain points for Notion this week?" '
+                'or "Show me stability issues for Slack."'
+            )
+            steps = []
+            latency = 50.0
+        elif "notion" in lowered or "slack" in lowered:
+            output = "I found current pain point signals for the requested product."
+            steps = [
+                StepTrace(
+                    step_id="1",
+                    step_name="search_pain_history",
+                    tool_name="search_pain_history",
+                    parameters={"query": query, "days": 7},
+                    output={"items": 3},
+                    success=True,
+                    metrics=StepMetrics(latency=20.0, cost=0.001),
+                )
+            ]
+            latency = 85.0
+        elif "coffee shops" in lowered or "eiffel tower" in lowered:
+            output = "I focus on product pain points, not local search."
+            steps = []
+            latency = 35.0
+        else:
+            output = "I can help analyze product pain points."
+            steps = []
+            latency = 45.0
+
+        return ExecutionTrace(
+            session_id="domain-seed-session",
+            start_time=now,
+            end_time=now,
+            steps=steps,
+            final_output=output,
+            metrics=ExecutionMetrics(total_cost=0.001, total_latency=latency),
+        )
+
+
 def test_generate_writes_clustered_draft_suite(monkeypatch, tmp_path):
     """Generate should write one draft test per distinct behavior path."""
     from evalview.commands.generate_cmd import generate
@@ -144,6 +222,8 @@ def test_generate_writes_clustered_draft_suite(monkeypatch, tmp_path):
     assert "HTML report" in result.output
     assert "Generated Test Preview" in result.output
     assert "Behavior:" in result.output
+    assert "source:" in result.output
+    assert "Prompt sources" in result.output
     assert "name:" in result.output
 
     yaml_files = sorted(out_dir.glob("*.yaml"))
@@ -156,6 +236,7 @@ def test_generate_writes_clustered_draft_suite(monkeypatch, tmp_path):
     assert "name: Capability Overview" in all_yaml
     assert "name: Hello" not in all_yaml
     assert "max_latency:" not in all_yaml
+    assert "prompt_source:" in all_yaml
 
     multi_turn_yaml = all_yaml
     assert "turns:" in multi_turn_yaml
@@ -169,6 +250,7 @@ def test_generate_writes_clustered_draft_suite(monkeypatch, tmp_path):
     assert report["covered"]["refusals"] >= 1
     assert "weather_api" in report["tools_seen"]
     assert "calculator" in report["tools_seen"]
+    assert "prompt_sources" in report
     assert "forbidden_tools:" in multi_turn_yaml
 
     weather_yaml = next(path.read_text(encoding="utf-8") for path in yaml_files if "weather" in path.name)
@@ -190,7 +272,72 @@ def test_generate_dry_run_does_not_write_files(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.output
     assert "Would generate" in result.output
+    assert "Prompt sources" in result.output
     assert not (tmp_path / "tests" / "generated").exists()
+
+
+def test_generate_uses_project_docs_as_cold_start_seed_prompts(monkeypatch, tmp_path):
+    """Cold-start generation should prioritize project-domain prompts mined from local docs."""
+    from evalview.commands.generate_cmd import generate
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "README.md").write_text(
+        "\n".join(
+            [
+                "# PainTracker",
+                "| Message | What it does |",
+                "| --- | --- |",
+                "| `What are the top pain points for Notion this week?` | Query current data |",
+                "| `Show me stability issues for Slack` | Search a product category |",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("evalview.commands.generate_cmd.create_adapter", lambda **kwargs: _DomainSeedAdapter())
+    monkeypatch.setattr("evalview.commands.generate_cmd._detect_agent_endpoint", lambda: "http://localhost:8000")
+    monkeypatch.setattr("evalview.commands.generate_cmd._load_config_if_exists", lambda: None)
+
+    runner = CliRunner()
+    result = runner.invoke(generate, ["--budget", "3", "--out", "tests/generated"])
+
+    assert result.exit_code == 0, result.output
+    report = json.loads((tmp_path / "tests" / "generated" / "generated.report.json").read_text(encoding="utf-8"))
+    drafted_queries = {draft["query"] for draft in report["draft_tests"]}
+    assert "What are the top pain points for Notion this week?" in drafted_queries or "Show me stability issues for Slack" in drafted_queries
+    assert "Search for coffee shops near the Eiffel Tower." not in drafted_queries
+    assert any(source.startswith("project_docs:") for source in report["prompt_sources"])
+
+
+def test_generate_uses_existing_curated_tests_as_seed_prompts(monkeypatch, tmp_path):
+    """Existing non-generated tests should act as high-signal seeds ahead of generic prompts."""
+    from evalview.commands.generate_cmd import generate
+
+    monkeypatch.chdir(tmp_path)
+    evalview_dir = tmp_path / "tests" / "evalview"
+    evalview_dir.mkdir(parents=True)
+    (evalview_dir / "notion.yaml").write_text(
+        "\n".join(
+            [
+                'name: "pain-query"',
+                "input:",
+                '  query: "What are the top pain points for Notion this week?"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("evalview.commands.generate_cmd.create_adapter", lambda **kwargs: _DomainSeedAdapter())
+    monkeypatch.setattr("evalview.commands.generate_cmd._detect_agent_endpoint", lambda: "http://localhost:8000")
+    monkeypatch.setattr("evalview.commands.generate_cmd._load_config_if_exists", lambda: None)
+
+    runner = CliRunner()
+    result = runner.invoke(generate, ["--budget", "3", "--out", "tests/generated"])
+
+    assert result.exit_code == 0, result.output
+    report = json.loads((tmp_path / "tests" / "generated" / "generated.report.json").read_text(encoding="utf-8"))
+    drafted_queries = {draft["query"] for draft in report["draft_tests"]}
+    assert "What are the top pain points for Notion this week?" in drafted_queries
+    assert report["prompt_sources"].get("existing_tests", 0) >= 1
 
 
 def test_generate_replaces_existing_generated_drafts_by_default(monkeypatch, tmp_path):
@@ -353,6 +500,41 @@ def test_generate_from_log_does_not_require_agent_endpoint(monkeypatch, tmp_path
     assert result.exit_code == 0, result.output
     report = json.loads((tmp_path / "tests" / "generated" / "generated.report.json").read_text(encoding="utf-8"))
     assert report["source"] == "logs"
+
+
+def test_generate_drops_non_progressing_follow_up_from_multi_turn(monkeypatch, tmp_path):
+    """A clarification follow-up should not become a multi-turn draft if it does not advance."""
+    import asyncio
+
+    from evalview.test_generation import AgentTestGenerator, ProbeResult
+
+    adapter = _NonProgressingFollowUpAdapter()
+    generator = AgentTestGenerator(
+        adapter=adapter,
+        endpoint="http://localhost:8000",
+        adapter_type="http",
+    )
+    now = datetime.now()
+    first_trace = ExecutionTrace(
+        session_id="test-session",
+        start_time=now,
+        end_time=now,
+        steps=[],
+        final_output="Please describe the support issue you need help with.",
+        metrics=ExecutionMetrics(total_cost=0.0, total_latency=40.0),
+    )
+    probe = ProbeResult(
+        query="Hello, what can you help me with?",
+        trace=first_trace,
+        tools=[],
+        signature="clarification",
+        behavior_class="clarification",
+        rationale="Observed clarification path",
+    )
+
+    follow_up = asyncio.run(generator._maybe_generate_follow_up_probe(probe))
+
+    assert follow_up is None
 
 
 def test_generate_report_tracks_changes_since_last_generation(monkeypatch, tmp_path):

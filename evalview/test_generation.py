@@ -5,11 +5,11 @@ import asyncio
 import json
 import re
 import shutil
-from urllib.parse import urlsplit, urlunsplit
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Sequence, Set
+from urllib.parse import urlsplit, urlunsplit
 
 import yaml  # type: ignore[import-untyped]
 import httpx
@@ -103,8 +103,29 @@ _DANGEROUS_TOOL_KEYWORDS = (
     "transfer",
     "book",
 )
+_SIDE_EFFECT_TOOL_KEYWORDS = (
+    "send",
+    "email",
+    "message",
+    "notify",
+    "webhook",
+    "collect",
+    "collection",
+    "escalate",
+    "create",
+    "update",
+    "trigger",
+)
 _SAFE_FOLLOW_UP = "Use the most reasonable safe assumption and continue."
 _GENERATE_REPORT_VERSION = 1
+_PROJECT_CONTEXT_FILES = (
+    "README.md",
+    "CONTEXT.md",
+    "AGENTS.md",
+)
+_PROMPT_LIKE_LINE = re.compile(r"^[A-Z0-9][^|`]{8,160}$")
+_BACKTICK_PROMPT = re.compile(r"`([^`\n]{8,180})`")
+_QUOTED_PROMPT = re.compile(r'["\u201c\u201d]([^"\u201c\u201d]{8,180})["\u201c\u201d]')
 
 
 @dataclass
@@ -119,6 +140,11 @@ class ProbeResult:
     rationale: str
     conversation_history: List[Dict[str, str]] = field(default_factory=list)
     safety_probe: bool = False
+    prompt_source: str = "unknown"
+
+
+def _normalize_text_for_comparison(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", "", text.lower())).strip()
 
 
 @dataclass
@@ -133,6 +159,12 @@ class GenerationResult:
     report: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class PromptCandidate:
+    text: str
+    source: str
+
+
 class AgentTestGenerator:
     """Generate a draft regression suite by probing an agent endpoint."""
 
@@ -144,6 +176,7 @@ class AgentTestGenerator:
         include_tools: Optional[Sequence[str]] = None,
         exclude_tools: Optional[Sequence[str]] = None,
         allow_live_side_effects: bool = False,
+        project_root: Optional[Path] = None,
     ):
         self.adapter = adapter
         self.endpoint = endpoint
@@ -152,6 +185,8 @@ class AgentTestGenerator:
         self.exclude_tools = {_normalize_name(tool) for tool in exclude_tools or []}
         self.allow_live_side_effects = allow_live_side_effects
         self.discovered_tools: List[Dict[str, Any]] = []
+        self.project_root = project_root or Path.cwd()
+        self.prompt_sources: Dict[str, str] = {}
 
     async def generate(
         self,
@@ -160,6 +195,8 @@ class AgentTestGenerator:
     ) -> GenerationResult:
         self.discovered_tools = await discover_tool_schemas(self.adapter, self.adapter_type, self.endpoint)
         queue = self._build_probe_queue(seed_prompts or [])
+        self.prompt_sources = {prompt: source for prompt, source in queue}
+        queue_text: Deque[str] = deque(prompt for prompt, _ in queue)
         seen_queries = set()
         clustered: Dict[str, ProbeResult] = {}
         signatures_seen: Counter[str] = Counter()
@@ -167,8 +204,8 @@ class AgentTestGenerator:
         failures: List[str] = []
         probes_run = 0
 
-        while queue and probes_run < budget:
-            query = queue.popleft().strip()
+        while queue_text and probes_run < budget:
+            query = queue_text.popleft().strip()
             if not query or query in seen_queries:
                 continue
             seen_queries.add(query)
@@ -182,7 +219,7 @@ class AgentTestGenerator:
                 probes_run += 1
                 continue
 
-            probe = self._build_probe_result(query, trace)
+            probe = self._build_probe_result(query, trace, self.prompt_sources.get(query, "live_probe"))
             probes_run += 1
             signatures_seen[probe.signature] += 1
             tools_seen.update(probe.tools)
@@ -202,7 +239,8 @@ class AgentTestGenerator:
             prioritized_candidates = list(self._expand_probe_candidates(probe))
             for candidate in reversed(prioritized_candidates):
                 if candidate not in seen_queries:
-                    queue.appendleft(candidate)
+                    self.prompt_sources.setdefault(candidate, "follow_up")
+                    queue_text.appendleft(candidate)
 
         tests = [self._build_test_case(probe, clustered) for probe in clustered.values()]
         report = self._build_report(
@@ -349,22 +387,38 @@ class AgentTestGenerator:
             report=report,
         )
 
-    def _build_probe_queue(self, seed_prompts: Sequence[str]) -> Deque[str]:
-        queue: Deque[str] = deque([_CAPABILITY_PROMPT])
-        for prompt in self._schema_prompts():
-            if self._prompt_is_allowed(prompt):
-                queue.append(prompt)
-        for prompt in seed_prompts:
-            if prompt.strip() and self._prompt_is_allowed(prompt.strip()):
-                queue.append(prompt.strip())
-        for prompt in _GENERIC_PROMPTS:
-            if self._prompt_is_allowed(prompt):
-                queue.append(prompt)
+    def _build_probe_queue(self, seed_prompts: Sequence[str]) -> Deque[tuple[str, str]]:
+        queue: Deque[tuple[str, str]] = deque()
+        seen: Set[str] = set()
+
+        auto_seed_prompts = self._workspace_seed_prompts()
+        prioritized_prompts = [PromptCandidate(prompt.strip(), "seed_file") for prompt in seed_prompts if prompt.strip()]
+        prioritized_prompts.extend(auto_seed_prompts)
+
+        def enqueue(prompt: str, source: str) -> None:
+            normalized = prompt.strip()
+            if not normalized or normalized in seen:
+                return
+            if self._prompt_is_allowed(normalized):
+                seen.add(normalized)
+                queue.append((normalized, source))
+
+        enqueue(_CAPABILITY_PROMPT, "capability")
+
+        for candidate in prioritized_prompts:
+            enqueue(candidate.text, candidate.source)
+
+        for prompt in self._schema_prompts([candidate.text for candidate in auto_seed_prompts]):
+            enqueue(prompt, "schema")
+
+        fallback_generic_prompts = [] if prioritized_prompts else list(_GENERIC_PROMPTS)
+        for prompt in fallback_generic_prompts:
+            enqueue(prompt, "generic")
         for prompt in _SAFE_FAILURE_PROMPTS:
-            queue.append(prompt)
+            enqueue(prompt, "safety")
         return queue
 
-    def _build_probe_result(self, query: str, trace: Any) -> ProbeResult:
+    def _build_probe_result(self, query: str, trace: Any, prompt_source: str) -> ProbeResult:
         tools = [step.tool_name for step in trace.steps if getattr(step, "tool_name", None)]
         behavior_class = self._classify_behavior(trace, tools)
         signature = self._build_signature(behavior_class, tools)
@@ -382,6 +436,7 @@ class AgentTestGenerator:
             behavior_class=behavior_class,
             rationale=rationale,
             safety_probe=query in _SAFE_FAILURE_PROMPTS,
+            prompt_source=prompt_source,
         )
 
     def _build_probe_result_from_log(self, entry: LogEntry) -> ProbeResult:
@@ -402,6 +457,7 @@ class AgentTestGenerator:
             behavior_class=behavior_class,
             rationale=rationale,
             safety_probe="safe" in str(entry.metadata).lower() or "refus" in (entry.output or "").lower(),
+            prompt_source="logs",
         )
 
     def _expand_probe_candidates(self, probe: ProbeResult) -> List[str]:
@@ -437,8 +493,10 @@ class AgentTestGenerator:
         except Exception:
             return None
 
-        follow_up = self._build_probe_result(probe.query, trace)
+        follow_up = self._build_probe_result(probe.query, trace, "follow_up")
         if any(not self._tool_is_allowed(tool) for tool in follow_up.tools):
+            return None
+        if not self._is_meaningful_follow_up(probe, follow_up):
             return None
         follow_up.behavior_class = "multi_turn"
         follow_up.signature = self._build_signature("multi_turn", follow_up.tools)
@@ -470,6 +528,24 @@ class AgentTestGenerator:
         if "?" in output:
             return "clarification"
         return "direct_answer"
+
+    def _is_meaningful_follow_up(self, first_probe: ProbeResult, follow_up_probe: ProbeResult) -> bool:
+        """Only keep follow-ups that materially advance the conversation."""
+        first_output = _normalize_text_for_comparison(first_probe.trace.final_output or "")
+        second_output = _normalize_text_for_comparison(follow_up_probe.trace.final_output or "")
+
+        if not second_output:
+            return False
+        if first_output == second_output:
+            return False
+        if (
+            not follow_up_probe.tools
+            and follow_up_probe.behavior_class == first_probe.behavior_class
+        ):
+            return False
+        if _normalize_text_for_comparison(_SAFE_FOLLOW_UP) in second_output:
+            return False
+        return True
 
     def _build_signature(self, behavior_class: str, tools: Sequence[str]) -> str:
         if tools:
@@ -564,6 +640,7 @@ class AgentTestGenerator:
                 "rationale": probe.rationale,
                 "behavior_class": probe.behavior_class,
                 "signature": probe.signature,
+                "prompt_source": probe.prompt_source,
             },
             input=TestInput(query=probe.query),
             expected=expected,
@@ -603,6 +680,7 @@ class AgentTestGenerator:
                     for tool in self.discovered_tools
                 ],
             },
+            "prompt_sources": dict(Counter(probe.prompt_source for probe in clustered)),
             "behavior_signatures": dict(signatures_seen),
             "covered": {
                 "tool_paths": covered_classes.get("tool_path", 0),
@@ -620,6 +698,7 @@ class AgentTestGenerator:
                     "query": probe.query,
                     "signature": probe.signature,
                     "rationale": probe.rationale,
+                    "prompt_source": probe.prompt_source,
                 }
                 for probe in clustered
             ],
@@ -699,14 +778,20 @@ class AgentTestGenerator:
     def _confidence_for_probe(self, probe: ProbeResult) -> str:
         return "high" if probe.tools or probe.behavior_class in {"refusal", "multi_turn"} else "medium"
 
-    def _schema_prompts(self) -> List[str]:
+    def _schema_prompts(self, project_prompts: Sequence[str]) -> List[str]:
         prompts: List[str] = []
+        prompt_context = "\n".join(project_prompts[:20])
         for tool in self.discovered_tools:
             tool_name = tool.get("name", "")
             description = (tool.get("description") or "").strip()
             if not tool_name or not self._tool_is_allowed(tool_name):
                 continue
-            prompt = self._tool_prompt_from_schema(tool_name, description, tool.get("inputSchema") or {})
+            prompt = self._tool_prompt_from_schema(
+                tool_name,
+                description,
+                tool.get("inputSchema") or {},
+                prompt_context,
+            )
             if prompt:
                 prompts.append(prompt)
         return prompts[:10]
@@ -716,16 +801,146 @@ class AgentTestGenerator:
         tool_name: str,
         description: str,
         input_schema: Dict[str, Any],
+        project_prompt_context: str,
     ) -> Optional[str]:
         normalized = _normalize_name(tool_name)
         for keyword, prompts in _TOOL_PROMPT_LIBRARY.items():
             if keyword in normalized:
                 return prompts[0]
 
+        domain_match = self._find_domain_prompt_for_tool(
+            tool_name,
+            description,
+            project_prompt_context,
+        )
+        if domain_match:
+            return domain_match
+
         property_names = list((input_schema.get("properties") or {}).keys())[:3]
         property_hint = ", ".join(property_names) if property_names else "the required parameters"
         summary = description or f"use the {tool_name} tool"
         return f"Use {tool_name} to help with a realistic task. Include {property_hint}. {summary}".strip()
+
+    def _find_domain_prompt_for_tool(
+        self,
+        tool_name: str,
+        description: str,
+        project_prompt_context: str,
+    ) -> Optional[str]:
+        normalized_tool = _normalize_name(tool_name)
+        normalized_description = _normalize_name(description)
+        for candidate in self._workspace_seed_prompts():
+            prompt = candidate.text
+            normalized_prompt = _normalize_name(prompt)
+            if not normalized_prompt:
+                continue
+            if normalized_tool and normalized_tool[:12] in normalized_prompt:
+                return prompt
+            if normalized_description and any(
+                token and token in normalized_prompt
+                for token in normalized_description.split()
+                if len(token) > 4
+            ):
+                return prompt
+        if project_prompt_context:
+            example_queries = self._extract_example_queries(project_prompt_context)
+            if example_queries:
+                return example_queries[0]
+        return None
+
+    def _workspace_seed_prompts(self) -> List[PromptCandidate]:
+        prompts: List[PromptCandidate] = []
+        seen: Set[str] = set()
+
+        for candidate in self._existing_test_queries():
+            normalized = _normalize_text_for_comparison(candidate.text)
+            if normalized and normalized not in seen and self._prompt_is_allowed(candidate.text):
+                seen.add(normalized)
+                prompts.append(candidate)
+
+        for candidate in self._project_doc_prompts():
+            normalized = _normalize_text_for_comparison(candidate.text)
+            if normalized and normalized not in seen and self._prompt_is_allowed(candidate.text):
+                seen.add(normalized)
+                prompts.append(candidate)
+
+        return prompts[:20]
+
+    def _existing_test_queries(self) -> List[PromptCandidate]:
+        tests_dir = self.project_root / "tests"
+        if not tests_dir.exists():
+            return []
+
+        queries: List[PromptCandidate] = []
+        for yaml_path in sorted(tests_dir.rglob("*.yaml")):
+            if "generated" in yaml_path.parts:
+                continue
+            try:
+                data = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+            except Exception:
+                continue
+            query = (((data.get("input") or {}).get("query")) or "").strip()
+            if query and self._looks_like_prompt(query):
+                queries.append(PromptCandidate(query, "existing_tests"))
+        return queries
+
+    def _project_doc_prompts(self) -> List[PromptCandidate]:
+        prompts: List[PromptCandidate] = []
+        for relative_name in _PROJECT_CONTEXT_FILES:
+            path = self.project_root / relative_name
+            if not path.exists() or not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            prompts.extend(self._extract_prompts_from_text(text, source=f"project_docs:{relative_name}"))
+        return prompts
+
+    def _extract_prompts_from_text(self, text: str, source: str) -> List[PromptCandidate]:
+        prompts: List[PromptCandidate] = []
+
+        for match in _BACKTICK_PROMPT.findall(text):
+            if self._looks_like_prompt(match):
+                prompts.append(PromptCandidate(match.strip(), source))
+
+        for match in _QUOTED_PROMPT.findall(text):
+            if self._looks_like_prompt(match):
+                prompts.append(PromptCandidate(match.strip(), source))
+
+        for line in text.splitlines():
+            stripped = line.strip().strip("|").strip()
+            if not stripped:
+                continue
+            if "|" in stripped:
+                first_cell = stripped.split("|", 1)[0].strip().strip("`")
+                if self._looks_like_prompt(first_cell):
+                    prompts.append(PromptCandidate(first_cell, source))
+            else:
+                cleaned = stripped.lstrip("-*0123456789. ").strip().strip("`")
+                if self._looks_like_prompt(cleaned):
+                    prompts.append(PromptCandidate(cleaned, source))
+
+        return prompts
+
+    def _looks_like_prompt(self, value: str) -> bool:
+        candidate = " ".join(value.split()).strip()
+        if not candidate or len(candidate) < 8 or len(candidate) > 180:
+            return False
+        lowered = candidate.lower()
+        if candidate.startswith(("http://", "https://")):
+            return False
+        if lowered.startswith(("evalview ", "python ", "pip ", "make ", "uvicorn ", "cd ")):
+            return False
+        if any(token in candidate for token in ("{", "}", "$(", "&&", "||", "::")):
+            return False
+        if "/" in candidate and " " not in candidate:
+            return False
+        return bool(
+            "?" in candidate
+            or any(word in lowered for word in ("show me", "what ", "which ", "how ", "find ", "search ", "top ", "recent "))
+            or _PROMPT_LIKE_LINE.match(candidate)
+        )
 
     def _load_previous_report(self, report_path: Path) -> Optional[Dict[str, Any]]:
         if not report_path.exists():
@@ -759,7 +974,7 @@ class AgentTestGenerator:
 
     def _is_dangerous_tool_name(self, tool_name: str) -> bool:
         normalized = _normalize_name(tool_name)
-        return any(keyword in normalized for keyword in _DANGEROUS_TOOL_KEYWORDS)
+        return any(keyword in normalized for keyword in _DANGEROUS_TOOL_KEYWORDS + _SIDE_EFFECT_TOOL_KEYWORDS)
 
     def _is_dangerous_tool_schema(self, tool: Dict[str, Any]) -> bool:
         text_parts = [
@@ -768,7 +983,7 @@ class AgentTestGenerator:
             " ".join((tool.get("inputSchema") or {}).get("properties", {}).keys()),
         ]
         combined = _normalize_name(" ".join(part for part in text_parts if part))
-        return any(keyword in combined for keyword in _DANGEROUS_TOOL_KEYWORDS)
+        return any(keyword in combined for keyword in _DANGEROUS_TOOL_KEYWORDS + _SIDE_EFFECT_TOOL_KEYWORDS)
 
     def _write_test_yaml(self, test: TestCase, path: Path) -> None:
         payload = test.model_dump(exclude_none=True)
@@ -895,6 +1110,7 @@ def run_generation(
     include_tools: Optional[Sequence[str]] = None,
     exclude_tools: Optional[Sequence[str]] = None,
     allow_live_side_effects: bool = False,
+    project_root: Optional[Path] = None,
 ) -> GenerationResult:
     """Sync wrapper for CLI usage."""
     generator = AgentTestGenerator(
@@ -904,6 +1120,7 @@ def run_generation(
         include_tools=include_tools,
         exclude_tools=exclude_tools,
         allow_live_side_effects=allow_live_side_effects,
+        project_root=project_root,
     )
     return asyncio.run(generator.generate(budget=budget, seed_prompts=seed_prompts))
 
