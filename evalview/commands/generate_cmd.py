@@ -228,36 +228,71 @@ def generate(
         console.print("[dim]Side effects:[/dim] safe mode")
     console.print()
 
-    # Shared state for the probe progress spinner
-    _probe_status: dict = {"spinner": None, "start_time": time.time()}
+    # Shared state for the probe progress
+    _gen_start = time.time()
+    _probe_live = {"live": None, "phase": "", "completed": 0, "total": 0}
 
-    def _elapsed() -> str:
-        secs = int(time.time() - _probe_status["start_time"])
-        return f"{secs // 60}:{secs % 60:02d}"
+    def _format_gen_elapsed() -> str:
+        elapsed = time.time() - _gen_start
+        mins, secs = divmod(elapsed, 60)
+        return f"{int(mins):02d}:{int(secs):02d}"
+
+    def _start_live_panel() -> None:
+        from rich.live import Live
+        from rich.panel import Panel
+
+        if _probe_live["live"] is not None:
+            return
+
+        def _make_panel() -> Panel:
+            phase = _probe_live["phase"] or "Starting..."
+            n = _probe_live["completed"]
+            t = _probe_live["total"]
+            return Panel(
+                f"  [green]● Generating[/green]\n\n"
+                f"  [bold]⏱️  Elapsed:[/bold]    [yellow]{_format_gen_elapsed()}[/yellow]\n"
+                f"  [bold]📋 Progress:[/bold]   {n}/{t} probes\n\n"
+                f"  [dim]{phase}[/dim]",
+                title="[bold]Test Generation[/bold]",
+                border_style="cyan",
+                padding=(0, 1),
+            )
+
+        live = Live(_make_panel(), console=console, refresh_per_second=4)
+        live.start()
+        _probe_live["live"] = live
+        _probe_live["make_panel"] = _make_panel
+
+    def _update_live() -> None:
+        live = _probe_live.get("live")
+        make = _probe_live.get("make_panel")
+        if live and make:
+            live.update(make())
+
+    def _stop_live() -> None:
+        live = _probe_live.get("live")
+        if live:
+            live.stop()
+            _probe_live["live"] = None
 
     def _on_probe(num: int, total: int, query: str, status: str, tools: list) -> None:
-        spinner = _probe_status.get("spinner")
-        if spinner:
-            spinner.stop()
+        _probe_live["total"] = total
         if status == "info":
-            # Status update (e.g., multi-turn in progress) — just update spinner
-            spinner = console.status(f"[dim]  {query}[/dim]", spinner="dots")
-            spinner.start()
-            _probe_status["spinner"] = spinner
+            _probe_live["phase"] = query
+            _update_live()
             return
+        _probe_live["completed"] = num
         if status == "fail":
             console.print(f"[dim]  [red]✗[/red] [{num}/{total}] {query} [timeout][/dim]")
         elif tools:
             console.print(f"[dim]  [green]✓[/green] [{num}/{total}] {query} → {', '.join(tools[:3])}[/dim]")
         else:
             console.print(f"[dim]  [green]✓[/green] [{num}/{total}] {query}[/dim]")
-        # Start spinner for the next phase
         if num < total:
-            spinner = console.status(f"[dim]  Probing [{num + 1}/{total}]... ({_elapsed()})[/dim]", spinner="dots")
+            _probe_live["phase"] = f"Probing [{num + 1}/{total}]..."
         else:
-            spinner = console.status(f"[dim]  Building tests... ({_elapsed()})[/dim]", spinner="dots")
-        spinner.start()
-        _probe_status["spinner"] = spinner
+            _probe_live["phase"] = "Building tests..."
+        _update_live()
 
     if from_log:
         from evalview.importers.log_importer import parse_log_file
@@ -274,11 +309,9 @@ def generate(
         entries = parse_log_file(Path(from_log), fmt=log_format, max_entries=budget)
         result = generator.generate_from_log_entries(entries)
     else:
-        # Start spinner before first probe
-        _probe_status["spinner"] = console.status(
-            f"[dim]  Probing [1/{budget}]...[/dim]", spinner="dots"
-        )
-        _probe_status["spinner"].start()
+        _probe_live["total"] = budget
+        _probe_live["phase"] = f"Probing [1/{budget}]..."
+        _start_live_panel()
 
         result = run_generation(
             adapter=adapter,
@@ -294,10 +327,7 @@ def generate(
             on_probe_complete=_on_probe,
         )
 
-    # Stop any lingering spinner
-    if _probe_status.get("spinner"):
-        _probe_status["spinner"].stop()
-        _probe_status["spinner"] = None
+    _stop_live()
 
     if not result.tests:
         console.print("[yellow]⚠ No draft tests were generated.[/yellow]")
@@ -367,7 +397,7 @@ def generate(
             replace_existing=not keep_old and not full_replace_confirmed,
         )
         ProjectStateStore().set_active_test_path(out_dir)
-        console.print(f"[green]✓ Saved {len(result.tests)} tests[/green] [dim]({_elapsed()} elapsed)[/dim]")
+        console.print(f"[green]✓ Saved {len(result.tests)} tests[/green] [dim]({_format_gen_elapsed()} elapsed)[/dim]")
         console.print(f"[dim]Output:[/dim] {output_dir}")
         console.print(f"[dim]Files written:[/dim] {len(written)}")
         if full_replace_confirmed:
