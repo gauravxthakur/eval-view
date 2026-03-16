@@ -53,7 +53,7 @@ PROVIDER_CONFIGS: Dict[LLMProvider, ProviderConfig] = {
     LLMProvider.OPENAI: ProviderConfig(
         name="openai",
         env_var="OPENAI_API_KEY",
-        default_model="gpt-4o-mini",
+        default_model="gpt-5-mini",
         display_name="OpenAI",
         api_key_url="https://platform.openai.com/api-keys",
     ),
@@ -108,7 +108,9 @@ MODEL_ALIASES: Dict[str, str] = {
     "gpt-5-mini": "gpt-5-mini",
     "gpt-5-nano": "gpt-5-nano",
     "gpt-5.1": "gpt-5.1",
-    # OpenAI GPT-4 family
+    "gpt-5.4": "gpt-5.4",
+    "gpt-5.4-mini": "gpt-5.4-mini",
+    # OpenAI GPT-4 family (legacy)
     "gpt-4o": "gpt-4o",
     "gpt-4o-mini": "gpt-4o-mini",
     "gpt-4": "gpt-4-turbo",
@@ -158,6 +160,11 @@ class JudgeCostTracker:
     # Pricing per 1M tokens (input, output)
     PRICING = {
         "openai": {
+            "gpt-5.4": (2.00, 8.00),
+            "gpt-5.4-mini": (0.10, 0.40),
+            "gpt-5": (2.00, 8.00),
+            "gpt-5-mini": (0.10, 0.40),
+            "gpt-5-nano": (0.05, 0.20),
             "gpt-4o": (2.50, 10.00),
             "gpt-4o-mini": (0.15, 0.60),
             "gpt-4-turbo": (10.00, 30.00),

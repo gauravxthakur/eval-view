@@ -176,7 +176,7 @@ Respond with JSON only: {"prompts": [{"text": "...", "category": \
 _SYNTHESIS_PROVIDER_PRIORITY = [
     ("deepseek", "deepseek-chat"),
     ("gemini", "gemini-2.0-flash"),
-    ("openai", "gpt-4o-mini"),
+    ("openai", "gpt-5-mini"),
     ("anthropic", "claude-haiku-4-5-20251001"),
 ]
 

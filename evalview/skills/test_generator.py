@@ -60,9 +60,10 @@ class SkillTestGenerator:
             ("claude-opus-4-6", 0.050, "Best quality, expensive"),
         ],
         "openai": [
-            ("gpt-4o-mini", 0.008, "Fast & affordable (recommended)"),
-            ("gpt-4o", 0.030, "Higher quality"),
-            ("gpt-5", 0.040, "Latest model (beta)"),
+            ("gpt-5-mini", 0.005, "Fast & affordable (recommended)"),
+            ("gpt-5", 0.020, "Higher quality"),
+            ("gpt-5.4", 0.020, "Latest model"),
+            ("gpt-4o-mini", 0.008, "Legacy, still available"),
         ],
         "gemini": [
             ("gemini-2.0-flash", 0.001, "Free tier (recommended)"),
@@ -77,7 +78,7 @@ class SkillTestGenerator:
     # Cost-optimized defaults (first model in each provider list)
     DEFAULT_MODELS = {
         "anthropic": "claude-haiku-4-5-20251001",
-        "openai": "gpt-4o-mini",
+        "openai": "gpt-5-mini",
         "gemini": "gemini-2.0-flash",
         "deepseek": "deepseek-chat",
     }
