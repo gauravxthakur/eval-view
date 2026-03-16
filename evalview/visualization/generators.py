@@ -982,8 +982,9 @@ table tr:hover td{background:rgba(255,255,255,.02)}
 
             {% for turn in t.turns %}
             <details style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;overflow:hidden;" {% if loop.first %}open{% endif %}>
-              <summary style="padding:10px 14px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;color:var(--blue);">
-                Turn {{ turn.index }}
+              <summary style="padding:10px 14px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:space-between;color:var(--blue);">
+                <span>Turn {{ turn.index }}{% if turn.tools %} · {{ turn.tools|join(', ') }}{% endif %}</span>
+                <span style="font-size:10px;color:var(--muted);font-weight:400">▶ details</span>
               </summary>
 
               <div style="padding:10px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.2);font-family:monospace;font-size:11px;color:var(--muted);">
@@ -1018,7 +1019,7 @@ table tr:hover td{background:rgba(255,255,255,.02)}
             {% endfor %}
           </div>
           {% endif %}
-          {% if t.output %}
+          {% if t.output and not t.turns %}
           <div style="background:rgba(34,211,165,.04);border:1px solid rgba(34,211,165,.15);border-radius:8px;padding:10px 14px;margin-top:14px;font-size:12px;color:var(--muted)">
             <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:rgba(34,211,165,.7);margin-right:8px">Response</span>{{ t.output[:300] }}{% if t.output|length > 300 %}...{% endif %}
           </div>
