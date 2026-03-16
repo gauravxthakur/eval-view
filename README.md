@@ -95,6 +95,31 @@ evalview capture --agent http://localhost:8000/invoke
 
 **Your data stays local.** Nothing is sent to EvalView servers.
 
+## Two Modes, One CLI
+
+EvalView has two complementary ways to test your agent:
+
+### Regression Gating — *"Did my agent change?"*
+
+Snapshot known-good behavior, then detect when something drifts.
+
+```bash
+evalview snapshot           # Capture current behavior as golden baseline
+evalview check              # Compare against baseline after every change
+evalview monitor            # Continuous checks with Slack alerts
+```
+
+### Evaluation — *"How good is my agent?"*
+
+Auto-generate tests and score your agent's quality right now.
+
+```bash
+evalview generate           # LLM generates realistic tests from your agent
+evalview run                # Execute tests, score with LLM judge, get HTML report
+```
+
+Both modes start the same way: `evalview demo` → `evalview init` → then pick your path.
+
 ## What It Catches
 
 | Status | Meaning | Action |

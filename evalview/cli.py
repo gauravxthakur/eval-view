@@ -50,21 +50,29 @@ from evalview.commands.feedback_cmd import feedback
 @click.version_option(version=_EVALVIEW_VERSION)
 @click.pass_context
 def main(ctx: click.Context) -> None:
-    """EvalView — Proof that your agent still works.
+    """EvalView — Regression testing and evaluation for AI agents.
 
     \b
     New here? Start with:
-      demo                    See regression detection in action (~30 seconds)
-      init                    Detect your agent and create a starter suite
-      snapshot                Save as your regression baseline
-      check                   Catch regressions after every change
+      demo                    See it work in 30 seconds
+      init                    Detect your agent and create first tests
 
     \b
-    Check Your Agent:
-      generate --agent <url>  Draft a broader suite from live probing
+    Regression Gating — did my agent change?
+      snapshot                Capture current behavior as golden baseline
+      check                   Compare against baseline — catch regressions
+
+    \b
+    Evaluation — how good is my agent?
+      generate                Auto-generate tests from live probing
+      run                     Execute tests, score with LLM judge
+
+    \b
+    Build Your Test Suite:
       capture --agent <url>   Record real traffic as tests
-      compare                 Compare two agent endpoints on the same suite
       import <log_file>       Convert production logs into EvalView tests
+      expand                  Generate test variations with LLM
+      compare                 Compare two agent endpoints on the same suite
 
     \b
     Golden Traces:
