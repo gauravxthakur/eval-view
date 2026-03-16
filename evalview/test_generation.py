@@ -334,7 +334,10 @@ class AgentTestGenerator:
                     on_probe_complete(probes_run, budget, "generating follow-up...", "info", [])
                 follow_up_probe = await self._generate_multi_turn_probe(probe)
                 probes_run += 1  # count the agent call
-                if follow_up_probe is not None:
+                if follow_up_probe is None:
+                    if on_probe_complete:
+                        on_probe_complete(probes_run, budget, "follow-up skipped", "info", [])
+                else:
                     tools_seen.update(follow_up_probe.tools)
                     # Enrich the original probe with multi-turn data
                     old_sig = probe.signature
