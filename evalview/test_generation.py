@@ -320,7 +320,14 @@ class AgentTestGenerator:
             # Multi-turn: generate a natural follow-up and attach it to
             # the SAME probe — so it becomes one test with 2 turns, not two
             # separate tests.  Skip for discovery probes (context only).
-            if not is_discovery and probe.behavior_class in {"tool_path", "clarification"}:
+            # Also skip if a multi-turn test with similar tools already exists
+            # (prevents near-duplicate multi-turn tests).
+            existing_mt_tools = {
+                frozenset(p.tools) for p in clustered.values()
+                if p.behavior_class == "multi_turn"
+            }
+            skip_mt = frozenset(probe.tools) in existing_mt_tools
+            if not is_discovery and not skip_mt and probe.behavior_class in {"tool_path", "clarification"}:
                 if on_probe_complete:
                     on_probe_complete(probes_run, budget, "generating follow-up...", "info", [])
                 follow_up_probe = await self._generate_multi_turn_probe(probe)
@@ -753,7 +760,10 @@ class AgentTestGenerator:
 
     def _build_signature(self, behavior_class: str, tools: Sequence[str]) -> str:
         if tools:
-            return f"{behavior_class}:{'->'.join(tools)}"
+            # Use unique tools for signature — different repetition counts
+            # of the same tool are orchestration noise, not distinct behaviors.
+            unique = list(dict.fromkeys(tools))
+            return f"{behavior_class}:{'->'.join(unique)}"
         return behavior_class
 
     def _prompt_is_allowed(self, prompt: str) -> bool:
