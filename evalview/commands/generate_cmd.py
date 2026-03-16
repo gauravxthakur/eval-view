@@ -159,12 +159,23 @@ def generate(
     """
     config = _load_config_if_exists()
 
+    # Load .env.local so API keys are available for LLM synthesis
+    try:
+        from dotenv import load_dotenv
+        from pathlib import Path as _P
+        for env_file in [_P(".env.local"), _P(".env")]:
+            if env_file.exists():
+                load_dotenv(dotenv_path=str(env_file), override=True)
+    except ImportError:
+        pass
+
     # Interactive budget selection when not explicitly provided
     if budget is None and from_log is None:
-        console.print("[bold]How many tests to generate?[/bold]\n")
-        console.print("  [cyan]1.[/cyan] Quick    (~4 tests,  ~2 min)   [dim]← recommended[/dim]")
-        console.print("  [cyan]2.[/cyan] Standard (~8 tests,  ~5 min)")
-        console.print("  [cyan]3.[/cyan] Thorough (~20 tests, ~12 min)")
+        console.print("[bold]How many tests to generate?[/bold]")
+        console.print("[dim]Time depends on your agent's speed (LLM agents are slower)[/dim]\n")
+        console.print("  [cyan]1.[/cyan] Quick    (~4 tests,  ~3-6 min)   [dim]← recommended[/dim]")
+        console.print("  [cyan]2.[/cyan] Standard (~8 tests,  ~6-12 min)")
+        console.print("  [cyan]3.[/cyan] Thorough (~20 tests, ~15-30 min)")
         console.print()
         choice = click.prompt("Choice", default="1", show_default=False).strip()
         budget_map = {"1": 4, "2": 8, "3": 20}
