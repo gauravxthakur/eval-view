@@ -938,7 +938,7 @@ table tr:hover td{background:rgba(255,255,255,.02)}
             {% if t.tokens %}<span>🔤 {{ t.tokens }}</span>{% endif %}
             <span>🧠 {{ t.model }}</span>
           </span>
-          <span class="chevron">▾</span>
+          <span class="chevron" style="display:inline-flex;align-items:center;gap:4px">▾ <span style="font-size:10px;font-weight:400">details</span></span>
         </div>
         <div id="tr{{ loop.index }}" class="item-body" {% if not loop.first %}style="display:none"{% endif %}>
           <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
