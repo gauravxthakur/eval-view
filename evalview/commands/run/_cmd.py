@@ -449,11 +449,11 @@ async def _run_async(
 
     # ── Model / SSRF / judge config ───────────────────────────────────────────
     model_config = config.get("model", {})
-    if verbose and model_config:
+    if model_config:
         if isinstance(model_config, str):
-            console.print(f"[dim]💰 Model: {model_config}[/dim]")
+            console.print(f"[dim]🧠 Agent model: {model_config}[/dim]")
         elif isinstance(model_config, dict):
-            console.print(f"[dim]💰 Model: {model_config.get('name', 'gpt-5-mini')}[/dim]")
+            console.print(f"[dim]🧠 Agent model: {model_config.get('name', 'unknown')}[/dim]")
             if "pricing" in model_config:
                 console.print(
                     f"[dim]💵 Custom pricing: ${model_config['pricing']['input_per_1m']:.2f} in, "
