@@ -708,6 +708,7 @@ body::after{width:400px;height:400px;background:rgba(34,211,165,.07);bottom:-100
 .item-head:hover{background:rgba(255,255,255,.03)}
 .item-name{font-weight:600;font-size:13px;flex:1;letter-spacing:-.01em}
 .chevron{color:var(--muted);font-size:11px;transition:transform .2s}
+details[open] .turn-chevron{transform:rotate(90deg)}
 .item-body{
   padding:20px;border-top:1px solid var(--border);
   background:rgba(0,0,0,.25);
@@ -984,7 +985,7 @@ table tr:hover td{background:rgba(255,255,255,.02)}
             <details style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;overflow:hidden;" {% if loop.first %}open{% endif %}>
               <summary style="padding:10px 14px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:space-between;color:var(--blue);">
                 <span>Turn {{ turn.index }}{% if turn.tools %} · {{ turn.tools|join(', ') }}{% endif %}</span>
-                <span style="font-size:10px;color:var(--muted);font-weight:400">▶ details</span>
+                <span style="font-size:10px;color:var(--muted);font-weight:400;transition:transform .2s;display:inline-block" class="turn-chevron">▶ details</span>
               </summary>
 
               <div style="padding:10px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.2);font-family:monospace;font-size:11px;color:var(--muted);">
