@@ -501,11 +501,11 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
 
 
 @click.command("replay")
-@click.argument("test_name")
+@click.argument("test_name", required=False, default=None)
 @click.option("--test-path", "test_path", default="tests", type=click.Path(exists=True), help="Directory containing tests")
 @click.option("--no-browser", is_flag=True, help="Don't auto-open the HTML report")
 @track_command("replay")
-def replay(test_name: str, test_path: str, no_browser: bool) -> None:
+def replay(test_name: Optional[str], test_path: str, no_browser: bool) -> None:
     """Replay a test and show full trajectory diff vs baseline.
 
     Shows step-by-step what your agent did vs. the saved baseline.
@@ -523,6 +523,18 @@ def replay(test_name: str, test_path: str, no_browser: bool) -> None:
 
     store = GoldenStore()
     _cloud_pull(store)
+
+    # No test name given — list available tests with baselines
+    if not test_name:
+        goldens = store.list_golden()
+        if not goldens:
+            console.print("\n[yellow]No baselines found.[/yellow] Run [bold]evalview snapshot[/bold] first.\n")
+            sys.exit(1)
+        console.print("\n[bold]Available tests with baselines:[/bold]\n")
+        for g in sorted(goldens, key=lambda g: g.test_name):
+            console.print(f"  [cyan]{g.test_name}[/cyan]  [dim]score: {g.score:.0f}[/dim]")
+        console.print(f"\n[dim]Usage: evalview replay <test_name>[/dim]\n")
+        sys.exit(0)
 
     golden_variants = store.load_all_golden_variants(test_name)
     if not golden_variants:
