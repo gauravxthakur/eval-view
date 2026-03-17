@@ -123,6 +123,59 @@ def _save_captures_as_tests(captures: List[Dict[str, Any]], output_dir: Path) ->
     return saved
 
 
+def _save_multi_turn_test(captures: List[Dict[str, Any]], output_dir: Path) -> int:
+    """Save all captures as a single multi-turn test YAML. Returns 1 if saved, 0 if empty."""
+    if len(captures) < 2:
+        return _save_captures_as_tests(captures, output_dir)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    first_query = captures[0].get("query", "capture")
+    slug = re.sub(r"[^a-z0-9-]", "-", first_query[:40].lower()).strip("-")
+    slug = re.sub(r"-+", "-", slug) or "multi-turn"
+    path = output_dir / f"multi-turn-{slug}.yaml"
+
+    lines = [
+        f'name: "multi-turn-{slug}"',
+        f'description: "Multi-turn conversation captured by evalview capture ({len(captures)} turns)"',
+        "",
+        "turns:",
+    ]
+
+    for cap in captures:
+        query = cap.get("query", "")
+        output = cap.get("output", "")
+        tools: List[str] = cap.get("tools", [])
+
+        if not query.strip():
+            continue
+
+        lines.append(f'  - query: "{_escape_yaml_str(query)}"')
+        lines.append("    expected:")
+
+        if tools:
+            lines.append("      tools:")
+            for t in tools:
+                lines.append(f"        - {t}")
+
+        contains = _extract_keywords_from_output(output, query)
+        if contains:
+            lines.append("      output:")
+            lines.append("        contains:")
+            for kw in contains:
+                lines.append(f'          - "{_escape_yaml_str(kw)}"')
+
+    lines += [
+        "",
+        "thresholds:",
+        "  min_score: 70",
+        "  max_latency: 30000",
+    ]
+
+    path.write_text("\n".join(lines) + "\n")
+    return 1
+
+
 @click.command("capture")
 @click.option("--agent", default=None, help="Real agent URL to proxy to (auto-detected if not set)")
 @click.option("--port", default=8091, type=int, show_default=True, help="Local port for the proxy to listen on")
@@ -131,8 +184,9 @@ def _save_captures_as_tests(captures: List[Dict[str, Any]], output_dir: Path) ->
     default="tests/test-cases", show_default=True,
     help="Directory where captured test YAMLs are saved",
 )
+@click.option("--multi-turn", "multi_turn", is_flag=True, default=False, help="Save all captures as one multi-turn conversation test")
 @track_command("capture")
-def capture(agent: Optional[str], port: int, output_dir: str) -> None:
+def capture(agent: Optional[str], port: int, output_dir: str, multi_turn: bool) -> None:
     """🎯 Capture real traffic as tests — tests from real usage, not guesses.
 
     \b
@@ -328,12 +382,14 @@ def capture(agent: Optional[str], port: int, output_dir: str) -> None:
     from rich.panel import Panel
     from rich.table import Table
 
+    mode_label = "[yellow]multi-turn[/yellow] — all requests become one conversation test" if multi_turn else "each request becomes a separate test"
     console.print()
     console.print(Panel(
         f"[bold green]Proxy live on http://localhost:{port}[/bold green]\n\n"
-        f"[dim]Forwarding to:[/dim] [cyan]{agent_url}[/cyan]\n\n"
+        f"[dim]Forwarding to:[/dim] [cyan]{agent_url}[/cyan]\n"
+        f"[dim]Mode:[/dim] {mode_label}\n\n"
         f"Point your client to [bold cyan]http://localhost:{port}[/bold cyan]\n"
-        f"instead of your agent — every interaction is captured as a test.\n\n"
+        f"instead of your agent — every interaction is captured.\n\n"
         f"[dim]Press [bold]Ctrl+C[/bold] when done.[/dim]",
         title="[bold]EvalView Capture[/bold]",
         border_style="green",
@@ -384,10 +440,15 @@ def capture(agent: Optional[str], port: int, output_dir: str) -> None:
         server.shutdown()
 
     console.print()
-    n_saved = _save_captures_as_tests(captures, Path(output_dir))
+    if multi_turn and len(captures) >= 2:
+        n_saved = _save_multi_turn_test(captures, Path(output_dir))
+        test_type = f"1 multi-turn test ({len(captures)} turns)"
+    else:
+        n_saved = _save_captures_as_tests(captures, Path(output_dir))
+        test_type = f"{n_saved} test(s)"
 
     if n_saved > 0:
-        console.print(f"[green]✅ Saved {n_saved} test(s) to {output_dir}/[/green]")
+        console.print(f"[green]✅ Saved {test_type} to {output_dir}/[/green]")
         console.print()
         console.print(Panel(
             f"[bold]You now have {n_saved} test(s) from real traffic.[/bold]\n\n"
