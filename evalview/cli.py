@@ -50,67 +50,39 @@ from evalview.commands.feedback_cmd import feedback
 @click.version_option(version=_EVALVIEW_VERSION)
 @click.pass_context
 def main(ctx: click.Context) -> None:
-    """EvalView — Regression testing and evaluation for AI agents.
+    """EvalView — Test and evaluate AI agents. Catch regressions before you ship.
 
     \b
-    New here? Start with:
-      demo                    See it work in 30 seconds
-      init                    Detect your agent and create first tests
+    Quick Start:
+      init                    Detect your agent and generate first tests
+      demo                    See EvalView work in 30 seconds
 
     \b
-    Regression Gating — did my agent change?
-      snapshot                Capture current behavior as golden baseline
-      check                   Compare against baseline — catch regressions
+    Core Workflow:
+      snapshot                Capture baseline behavior (choose judge model on first run)
+      check                   Diff against baseline — flag regressions, tool changes, output drift
+      replay <test>           Full trajectory diff for a single test
 
     \b
-    Evaluation — how good is my agent?
-      generate                Auto-generate tests from live probing
-      run                     Execute tests, score with LLM judge
+    Build Test Suite:
+      generate                Auto-generate tests by probing your live agent
+      capture --agent <url>   Record real user traffic as replayable tests
+      import <log_file>       Convert production logs into test cases
+      expand                  LLM-powered test variation generation
 
     \b
-    Build Your Test Suite:
-      capture --agent <url>   Record real traffic as tests
-      import <log_file>       Convert production logs into EvalView tests
-      expand                  Generate test variations with LLM
-      compare                 Compare two agent endpoints on the same suite
-
-    \b
-    Golden Traces:
-      golden save <file>      Save a known-good baseline
-      golden list             List saved baselines
-      golden show <name>      View baseline details
-
-    \b
-    Explore & Learn:
-      chat                    Interactive AI assistant for eval guidance
-      gym                     Practice agent eval patterns
-
-    \b
-    Reports:
-      replay                  Open a trajectory diff for one test
-      visualize               Generate a visual HTML report from results
-      trends                  Performance trends over time
-
-    \b
-    Production:
-      monitor                 Continuous regression detection (+ Slack alerts)
-
-    \b
-    CI/CD:
-      ci comment              Post results to a GitHub PR
-      init --ci               Generate GitHub Actions workflow
+    Production & CI:
+      monitor                 Continuous regression detection with Slack alerts
+      ci comment              Post check results to GitHub PRs
+      trends                  Score, cost, and latency trends over time
+      compare                 A/B compare two agent endpoints
 
     \b
     Advanced:
-      run                     Direct evaluation runner with optional HTML reports
-      login                   Connect to EvalView Cloud
-      logout                  Disconnect from EvalView Cloud
-      whoami                  Show current cloud login status
-      feedback                Open a pre-filled GitHub issue
-      skill                   Test Claude Code skills
-      trace                   Trace LLM calls in scripts
-      traces                  Query stored trace data
-      expand                  Generate test variations with LLM
+      run                     Full evaluation runner (LLM judge, statistical mode, HTML reports)
+      golden list|show|save   Manage golden baselines directly
+      chat                    Interactive AI assistant for eval guidance
+      feedback                Report an issue or request a feature
     """
     # Show first-run telemetry notice (once only)
     if should_show_first_run_notice():
