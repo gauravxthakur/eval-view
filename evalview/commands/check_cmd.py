@@ -358,6 +358,27 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
             print(json.dumps({"dry_run": True, "tests": len(test_cases), "with_baselines": tests_with_baselines}))
         sys.exit(0)
 
+    # Pre-flight: skip execution if no tests have matching baselines
+    golden_names = {golden.test_name for golden in goldens}
+    tests_with_baselines = [tc for tc in test_cases if tc.name in golden_names]
+    if not tests_with_baselines:
+        if not json_output:
+            from rich.panel import Panel as _PF
+            console.print(
+                _PF(
+                    "[yellow]0 tests compared.[/yellow] "
+                    "Your test names don't match any golden baselines.\n\n"
+                    "This usually means tests were regenerated or renamed since the last snapshot.\n\n"
+                    "[bold]To fix:[/bold]\n"
+                    "  [bold]evalview snapshot[/bold]         capture new baselines for current tests\n"
+                    "  [bold]evalview snapshot --reset[/bold]  clear old baselines first, then capture fresh",
+                    border_style="yellow",
+                    title="No matching baselines",
+                    padding=(1, 2),
+                )
+            )
+        sys.exit(0)
+
     # Execute tests and compare against golden — show spinner while waiting
     if not json_output:
         from evalview.commands.shared import run_with_spinner

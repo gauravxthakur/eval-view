@@ -131,6 +131,8 @@ def test_check_does_not_report_clean_when_execution_failures_occur(monkeypatch, 
         lambda test_cases, config, json_output, semantic_diff, timeout: ([], [sample_result], None, {}),
     )
 
+    # Provide input for interactive judge picker + skip it via env var
+    monkeypatch.setenv("EVAL_MODEL", "gpt-5.4-mini")
     result = runner.invoke(check, ["tests"])
 
     assert result.exit_code == 1
