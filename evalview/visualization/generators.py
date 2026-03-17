@@ -1005,7 +1005,8 @@ table tr:hover td{background:rgba(255,255,255,.02)}
             {% if t.input_tokens or t.output_tokens %}
             <span class="badge b-blue">in {{ '{:,}'.format(t.input_tokens) }} / out {{ '{:,}'.format(t.output_tokens) }} tokens</span>
             {% if t.cost != "$0" %}<span class="badge b-blue">{{ t.cost }}</span>{% endif %}
-            {% elif t.cost != "$0" %}
+            {% endif %}
+            {% if not t.input_tokens and not t.output_tokens and t.cost != "$0" %}
             <span class="badge b-yellow">{{ t.cost }} (adapter-reported, no token data)</span>
             {% endif %}
             {% if t.baseline_created and t.baseline_created != 'Unknown' %}

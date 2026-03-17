@@ -40,12 +40,17 @@ def run_with_spinner(fn: Any, label: str, n_tests: int) -> Any:
 
     Returns:
         Whatever fn() returns.
+
+    Raises:
+        Whatever fn() raises — exceptions are captured and re-raised
+        on the main thread.
     """
     import time as _time
     import threading
     from rich.live import Live
 
     result_holder: List[Any] = []
+    error_holder: List[BaseException] = []
     start = _time.time()
     done = threading.Event()
 
@@ -62,8 +67,12 @@ def run_with_spinner(fn: Any, label: str, n_tests: int) -> Any:
         return f"  [yellow]{frame}[/yellow] {label} {n_tests} test{'s' if n_tests != 1 else ''}...  [dim]{ts}[/dim]"
 
     def _run() -> None:
-        result_holder.append(fn())
-        done.set()
+        try:
+            result_holder.append(fn())
+        except BaseException as exc:
+            error_holder.append(exc)
+        finally:
+            done.set()
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
@@ -72,7 +81,10 @@ def run_with_spinner(fn: Any, label: str, n_tests: int) -> Any:
         while not done.wait(timeout=0.125):
             live.update(_render())
 
-    thread.join()
+    thread.join(timeout=10)
+
+    if error_holder:
+        raise error_holder[0]
     return result_holder[0]
 
 
