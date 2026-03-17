@@ -2,6 +2,7 @@
 # QUICK START - Copy this to your repository!
 # =============================================================================
 # Catches agent regressions on every PR. Posts a comment with pass/fail + diff.
+# Also writes a job summary visible in the Actions UI.
 #
 # Setup:
 #   1. Copy to .github/workflows/evalview.yml in your repo
@@ -40,7 +41,6 @@ jobs:
 
       - name: Post PR comment
         if: github.event_name == 'pull_request' && always()
-        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

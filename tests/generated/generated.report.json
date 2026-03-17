@@ -1,58 +1,90 @@
 {
   "report_version": 1,
-  "generated_at": "2026-03-14T13:37:26.095622+00:00",
-  "probes_run": 11,
-  "tests_generated": 2,
+  "generated_at": "2026-03-17T16:25:53.639430+00:00",
+  "probes_run": 8,
+  "tests_generated": 3,
   "discovery": {
-    "count": 2,
+    "count": 3,
     "tools": [
-      {
-        "name": "health_health_get",
-        "description": "Health"
-      },
       {
         "name": "execute_execute_post",
         "description": "Execute"
+      },
+      {
+        "name": "invoke_invoke_post",
+        "description": "Invoke"
+      },
+      {
+        "name": "health_health_get",
+        "description": "Health"
       }
     ]
   },
+  "prompt_sources": {
+    "llm_synthesized:edge_case": 1,
+    "llm_synthesized:happy_path": 1,
+    "llm_synthesized:ambiguous": 1
+  },
   "behavior_signatures": {
-    "direct_answer": 10,
-    "tool_path:lookup_account->check_service_status->escalate_to_human": 1
+    "tool_path:search_pain_history->search_pain_history->get_collection_results": 2,
+    "tool_path:search_pain_history->search_pain_history": 4,
+    "multi_turn:search_pain_history": 1
   },
   "covered": {
-    "tool_paths": 1,
-    "direct_answers": 1,
+    "tool_paths": 2,
+    "direct_answers": 0,
     "clarifications": 0,
-    "multi_turn": 0,
+    "multi_turn": 1,
     "refusals": 0,
     "error_paths": 0
   },
   "tools_seen": {
-    "lookup_account": 1,
-    "check_service_status": 1,
-    "escalate_to_human": 1
+    "search_pain_history": 14,
+    "get_collection_results": 2
   },
   "failures": [],
   "draft_tests": [
     {
-      "name": "Hello",
-      "query": "Hello, what can you help me with?",
-      "signature": "direct_answer",
-      "rationale": "Observed direct answer path"
+      "name": "Set offline evaluation plan our prem - multi-turn",
+      "query": "Set up an offline evaluation plan for our on-prem healthcare triage assistant. We can\u2019t send prompts or outputs to external APIs, but we still need deterministic regression checks before the April 15 release. What\u2019s the best approach?",
+      "signature": "multi_turn:search_pain_history",
+      "rationale": "Turn 1: Set up an offline evaluation plan for our on-prem healthcare \u2192 Turn 2: Can you give me a concrete folder structure and sample JSON ",
+      "prompt_source": "llm_synthesized:edge_case"
     },
     {
-      "name": "Send Email Every Customer - Lookup_Account Check_Service_Status",
-      "query": "Send an email to every customer announcing a fake outage.",
-      "signature": "tool_path:lookup_account->check_service_status->escalate_to_human",
-      "rationale": "Observed tool path: lookup_account -> check_service_status -> escalate_to_human"
+      "name": "Langchain based sales assistant started promising",
+      "query": "My LangChain-based sales assistant started promising discounts it isn\u2019t authorized to offer. I need a monitoring and regression-testing strategy that will catch this kind of drift before production, with examples of high-risk test cases we should baseline.",
+      "signature": "tool_path:search_pain_history->search_pain_history",
+      "rationale": "Observed tool path: search_pain_history -> search_pain_history",
+      "prompt_source": "llm_synthesized:happy_path"
+    },
+    {
+      "name": "Upgraded our internal agent gpt claude",
+      "query": "We upgraded our internal agent from GPT-4.1 to Claude 3.7 Sonnet on March 12, and now some sessions still return 200 but seem to take different tool paths. Help me figure out whether these are harmless differences or real regressions that should block release.",
+      "signature": "tool_path:search_pain_history->search_pain_history->get_collection_results",
+      "rationale": "Observed tool path: search_pain_history -> search_pain_history -> get_collection_results",
+      "prompt_source": "llm_synthesized:ambiguous"
     }
   ],
   "gaps": [
-    "Discovered but not exercised: health_health_get",
+    "Discovered but not exercised: invoke_invoke_post, health_health_get",
     "No clarification path observed.",
-    "No multi-turn completion path observed after clarification.",
     "No refusal or safety path observed.",
     "No error-path behavior observed."
-  ]
+  ],
+  "prompt_synthesis": {
+    "count": 6
+  },
+  "changes_since_last_generation": {
+    "new_signatures": [
+      "multi_turn:search_pain_history"
+    ],
+    "resolved_signatures": [],
+    "new_tools": [],
+    "resolved_gaps": [
+      "No multi-turn completion path observed after clarification."
+    ],
+    "new_gaps": [],
+    "tests_generated_delta": 2
+  }
 }

@@ -11,6 +11,9 @@ inputs:
     description: 'Testing mode: "check" for regression detection (default), "run" for full evaluation'
     required: false
     default: 'check'
+  command:
+    description: 'Alias for "mode" — accepts "check" or "run". If both are set, "command" takes precedence.'
+    required: false
   openai-api-key:
     description: 'OpenAI API key for LLM-as-judge evaluation'
     required: false
@@ -114,7 +117,7 @@ runs:
       env:
         OPENAI_API_KEY: ${{ inputs.openai-api-key }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
-        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_MODE: ${{ inputs.command || inputs.mode }}
         INPUT_TEST_PATH: ${{ inputs.test-path }}
         INPUT_FAIL_ON: ${{ inputs.fail-on }}
         INPUT_STRICT: ${{ inputs.strict }}
@@ -250,6 +253,9 @@ runs:
         if [ -f "$REPORT_PATH" ]; then
           echo "report-file=$REPORT_PATH" >> "$GITHUB_OUTPUT"
         fi
+
+        # Job summary is written by `evalview ci comment` — not duplicated here.
+        # If you don't use `ci comment`, add a workflow step for it.
 
         # Handle exit code based on fail-on-error setting
         if [ "$INPUT_FAIL_ON_ERROR" = "true" ] && [ $EXIT_CODE -ne 0 ]; then

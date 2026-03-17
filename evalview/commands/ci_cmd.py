@@ -65,6 +65,7 @@ def ci_comment(results: Optional[str], dry_run: bool, update: bool):
         generate_suite_pr_comment,
         post_pr_comment,
         update_or_create_comment,
+        write_job_summary,
     )
 
     # Load results
@@ -125,6 +126,10 @@ def ci_comment(results: Optional[str], dry_run: bool, update: bool):
         console.print(comment)
         console.print()
         return
+
+    # Write to GitHub Actions job summary (visible in Actions UI)
+    if write_job_summary(comment):
+        console.print("[green]✓ Written to job summary[/green]")
 
     # Post comment
     if update:
