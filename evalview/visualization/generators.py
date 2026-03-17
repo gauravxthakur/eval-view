@@ -174,8 +174,12 @@ def _extract_models(result: "EvaluationResult") -> List[str]:
         seen_ids.add(model_id)
         labels.append(_clean_model_name(model_id, model_provider))
 
+    # Only add span models if the trace didn't already report a model_id.
+    # When model_id is set (from the agent response), span models are
+    # typically just the config echo from the HTTP adapter — showing both
+    # creates confusing duplicates like "anthropic/claude-sonnet-4-5, claude-sonnet-4-6".
     trace_context = getattr(trace, "trace_context", None)
-    if trace_context:
+    if trace_context and not model_id:
         for span in trace_context.spans:
             if span.llm and span.llm.model and span.llm.model not in seen_ids:
                 seen_ids.add(span.llm.model)
@@ -583,228 +587,338 @@ _TEMPLATE = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{ title }}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --green:#22d3a5;--red:#ff6b8a;--yellow:#fbbf24;--blue:#7c95ff;--purple:#c084fc;--pink:#f472b6;
-  --g1:rgba(34,211,165,.2);--g2:rgba(124,149,255,.2);--g3:rgba(248,107,138,.2);
-  --glass:rgba(255,255,255,.04);--glass2:rgba(255,255,255,.07);
-  --border:rgba(255,255,255,.09);--border2:rgba(255,255,255,.15);
-  --text:#f8fafc;--muted:#7a8fa6;--r:14px;
-  --font:'Inter',-apple-system,sans-serif;
+  --green:#34d399;--green-dim:#065f46;--red:#fb7185;--red-dim:#9f1239;
+  --yellow:#fbbf24;--yellow-dim:#92400e;--blue:#818cf8;--purple:#c084fc;--cyan:#22d3ee;
+  --surface-0:#0a0e1a;--surface-1:rgba(255,255,255,.03);--surface-2:rgba(255,255,255,.055);
+  --surface-3:rgba(255,255,255,.08);--surface-raised:rgba(255,255,255,.04);
+  --border:rgba(255,255,255,.07);--border-subtle:rgba(255,255,255,.05);
+  --border-hover:rgba(255,255,255,.14);
+  --text:#f1f5f9;--text-secondary:#94a3b8;--text-tertiary:#64748b;
+  --radius:16px;--radius-sm:10px;--radius-xs:6px;
+  --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono','SF Mono','Fira Code',monospace;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.3),0 1px 3px rgba(0,0,0,.15);
+  --shadow-md:0 4px 16px rgba(0,0,0,.25),0 2px 4px rgba(0,0,0,.15);
+  --shadow-lg:0 8px 32px rgba(0,0,0,.35),0 4px 8px rgba(0,0,0,.2);
+  --shadow-glow-green:0 0 20px rgba(52,211,153,.15),0 0 60px rgba(52,211,153,.05);
+  --shadow-glow-red:0 0 20px rgba(251,113,133,.15),0 0 60px rgba(251,113,133,.05);
+  --shadow-glow-blue:0 0 20px rgba(129,140,248,.15),0 0 60px rgba(129,140,248,.05);
+  --transition:all .2s cubic-bezier(.4,0,.2,1);
 }
-html{scroll-behavior:smooth}
+html{scroll-behavior:smooth;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 body{
   font-family:var(--font);font-size:14px;line-height:1.6;
   color:var(--text);min-height:100vh;overflow-x:hidden;
+  background:var(--surface-0);
+}
+/* Subtle mesh gradient background */
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
   background:
-    radial-gradient(ellipse 90% 60% at 15% 0%,rgba(124,149,255,.18),transparent 60%),
-    radial-gradient(ellipse 70% 50% at 85% 100%,rgba(34,211,165,.15),transparent 60%),
-    radial-gradient(ellipse 50% 40% at 50% 50%,rgba(248,107,138,.08),transparent 60%),
-    #050a14;
+    radial-gradient(ellipse 80% 50% at 10% 0%,rgba(129,140,248,.1),transparent 50%),
+    radial-gradient(ellipse 60% 40% at 90% 100%,rgba(52,211,153,.07),transparent 50%),
+    radial-gradient(ellipse 40% 30% at 50% 40%,rgba(192,132,252,.04),transparent 50%);
 }
-/* Animated orbs */
-body::before,body::after{
-  content:'';position:fixed;border-radius:50%;filter:blur(80px);
-  pointer-events:none;z-index:0;animation:float 12s ease-in-out infinite;
-}
-body::before{width:500px;height:500px;background:rgba(124,149,255,.07);top:-150px;right:-100px}
-body::after{width:400px;height:400px;background:rgba(34,211,165,.07);bottom:-100px;left:-80px;animation-delay:-6s}
-@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-20px)}}
-/* Header */
+
+/* ── Header ── */
 .header{
   position:sticky;top:0;z-index:200;
-  background:rgba(5,10,20,.8);
+  background:rgba(10,14,26,.85);
   border-bottom:1px solid var(--border);
-  backdrop-filter:blur(24px) saturate(180%);
-  -webkit-backdrop-filter:blur(24px) saturate(180%);
-  padding:0 40px;height:62px;
+  backdrop-filter:blur(20px) saturate(180%);
+  -webkit-backdrop-filter:blur(20px) saturate(180%);
+  padding:0 32px;height:56px;
   display:flex;align-items:center;justify-content:space-between;
 }
-.logo{
-  display:flex;align-items:center;gap:12px;
-}
+.logo{display:flex;align-items:center;gap:10px}
 .logo-icon{
-  width:34px;height:34px;border-radius:10px;flex-shrink:0;
-  background:linear-gradient(135deg,#7c95ff,#c084fc);
-  box-shadow:0 0 0 1px rgba(124,149,255,.4),0 4px 20px rgba(124,149,255,.35);
-  display:flex;align-items:center;justify-content:center;font-size:16px;
+  width:30px;height:30px;border-radius:8px;flex-shrink:0;
+  background:linear-gradient(135deg,var(--blue),var(--purple));
+  display:flex;align-items:center;justify-content:center;font-size:14px;
+  box-shadow:0 0 0 1px rgba(129,140,248,.3),0 2px 12px rgba(129,140,248,.2);
 }
-.logo-text{font-size:15px;font-weight:700;letter-spacing:-.02em}
-.logo-sub{font-size:11px;color:var(--muted);font-weight:400}
-.header-right{display:flex;align-items:center;gap:8px}
-/* Badges */
+.logo-text{font-size:14px;font-weight:700;letter-spacing:-.02em;color:var(--text)}
+.logo-sub{font-size:11px;color:var(--text-tertiary);font-weight:400;letter-spacing:-.01em}
+.header-right{display:flex;align-items:center;gap:6px}
+
+/* ── Badges ── */
 .badge{
-  display:inline-flex;align-items:center;gap:5px;
-  padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600;
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;
+  letter-spacing:-.01em;white-space:nowrap;
 }
-.b-green{background:rgba(34,211,165,.12);color:var(--green);border:1px solid rgba(34,211,165,.25)}
-.b-red{background:rgba(255,107,138,.12);color:var(--red);border:1px solid rgba(255,107,138,.25)}
-.b-yellow{background:rgba(251,191,36,.12);color:var(--yellow);border:1px solid rgba(251,191,36,.25)}
-.b-blue{background:rgba(124,149,255,.12);color:var(--blue);border:1px solid rgba(124,149,255,.25)}
-.b-purple{background:rgba(192,132,252,.12);color:var(--purple);border:1px solid rgba(192,132,252,.25)}
-/* Main */
-.main{max-width:1200px;margin:0 auto;padding:32px 40px;position:relative;z-index:1}
-/* Tab bar */
+.b-green{background:rgba(52,211,153,.1);color:var(--green);border:1px solid rgba(52,211,153,.2)}
+.b-red{background:rgba(251,113,133,.1);color:var(--red);border:1px solid rgba(251,113,133,.2)}
+.b-yellow{background:rgba(251,191,36,.1);color:var(--yellow);border:1px solid rgba(251,191,36,.2)}
+.b-blue{background:rgba(129,140,248,.1);color:var(--blue);border:1px solid rgba(129,140,248,.2)}
+.b-purple{background:rgba(192,132,252,.1);color:var(--purple);border:1px solid rgba(192,132,252,.2)}
+
+/* ── Layout ── */
+.main{max-width:1280px;margin:0 auto;padding:28px 32px 80px;position:relative;z-index:1}
+
+/* ── Tab bar ── */
 .tabbar{
-  display:flex;gap:2px;
-  background:rgba(255,255,255,.03);border:1px solid var(--border);
-  border-radius:12px;padding:3px;margin-bottom:32px;width:fit-content;
+  display:flex;gap:1px;
+  background:var(--surface-1);border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:3px;margin-bottom:28px;width:fit-content;
 }
 .tab{
-  background:none;border:none;color:var(--muted);cursor:pointer;
-  font:500 13px/1 var(--font);padding:9px 20px;border-radius:9px;
-  transition:all .18s;
+  background:none;border:none;color:var(--text-tertiary);cursor:pointer;
+  font:500 13px/1 var(--font);padding:8px 18px;border-radius:7px;
+  transition:var(--transition);letter-spacing:-.01em;
 }
-.tab:hover{color:var(--text);background:rgba(255,255,255,.05)}
+.tab:hover{color:var(--text-secondary);background:var(--surface-2)}
 .tab.on{
-  color:#fff;
-  background:linear-gradient(135deg,rgba(124,149,255,.3),rgba(192,132,252,.2));
-  border:1px solid rgba(124,149,255,.35);
-  box-shadow:0 2px 16px rgba(124,149,255,.2),inset 0 1px 0 rgba(255,255,255,.1);
+  color:var(--text);background:var(--surface-3);
+  box-shadow:var(--shadow-sm);
 }
 .panel{display:none}.panel.on{display:block}
-/* KPI row */
-.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+
+/* ── KPI Cards with progress rings ── */
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+@media(max-width:1100px){.kpi-row{grid-template-columns:repeat(2,1fr)}}
 .kpi{
-  background:var(--glass);border:1px solid var(--border);
-  border-radius:var(--r);padding:22px 20px;
-  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  background:var(--surface-raised);border:1px solid var(--border);
+  border-radius:var(--radius);padding:20px;
   position:relative;overflow:hidden;
-  transition:transform .2s,border-color .2s,box-shadow .2s;cursor:default;
+  transition:var(--transition);cursor:default;
 }
-.kpi::after{
-  content:'';position:absolute;inset:0;pointer-events:none;border-radius:var(--r);
-  background:linear-gradient(135deg,rgba(255,255,255,.05) 0%,transparent 60%);
-}
-.kpi:hover{transform:translateY(-3px)}
-.kpi.kpi-pass{border-color:rgba(34,211,165,.2)}
-.kpi.kpi-pass:hover{box-shadow:0 12px 40px rgba(34,211,165,.15);border-color:rgba(34,211,165,.4)}
-.kpi.kpi-fail{border-color:rgba(255,107,138,.2)}
-.kpi.kpi-fail:hover{box-shadow:0 12px 40px rgba(255,107,138,.15);border-color:rgba(255,107,138,.4)}
-.kpi.kpi-blue{border-color:rgba(124,149,255,.2)}
-.kpi.kpi-blue:hover{box-shadow:0 12px 40px rgba(124,149,255,.15);border-color:rgba(124,149,255,.4)}
-.kpi-icon{font-size:20px;margin-bottom:14px;display:block}
-.kpi-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}
-.kpi-num{font-size:36px;font-weight:800;letter-spacing:-.03em;line-height:1}
-.kpi-num.c-green{color:var(--green);text-shadow:0 0 30px rgba(34,211,165,.4)}
-.kpi-num.c-red{color:var(--red);text-shadow:0 0 30px rgba(255,107,138,.4)}
+.kpi:hover{transform:translateY(-2px);border-color:var(--border-hover);box-shadow:var(--shadow-md)}
+.kpi.kpi-pass:hover{box-shadow:var(--shadow-glow-green);border-color:rgba(52,211,153,.25)}
+.kpi.kpi-fail:hover{box-shadow:var(--shadow-glow-red);border-color:rgba(251,113,133,.25)}
+.kpi.kpi-blue:hover{box-shadow:var(--shadow-glow-blue);border-color:rgba(129,140,248,.25)}
+.kpi-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px}
+.kpi-label{font-size:11px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em}
+.kpi-ring{position:relative;width:44px;height:44px;flex-shrink:0}
+.kpi-ring svg{transform:rotate(-90deg)}
+.kpi-ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--text-secondary)}
+.kpi-num{font-size:32px;font-weight:800;letter-spacing:-.04em;line-height:1}
+.kpi-num.c-green{color:var(--green)}
+.kpi-num.c-red{color:var(--red)}
 .kpi-num.c-yellow{color:var(--yellow)}
-.kpi-num.c-blue{color:var(--blue);text-shadow:0 0 30px rgba(124,149,255,.4)}
-.kpi-sub{font-size:12px;color:var(--muted);margin-top:6px}
-/* Score bar on KPI */
-.kpi-bar{margin-top:14px;height:3px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
-.kpi-bar-fill{height:100%;border-radius:2px;transition:width 1s cubic-bezier(.4,0,.2,1)}
-.kpi-bar-fill.green{background:linear-gradient(90deg,#22d3a5,#7c95ff)}
-.kpi-bar-fill.red{background:linear-gradient(90deg,#ff6b8a,#fbbf24)}
-.kpi-bar-fill.blue{background:linear-gradient(90deg,#7c95ff,#c084fc)}
-.meta-row{display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-bottom:20px}
+.kpi-num.c-blue{color:var(--blue)}
+.kpi-sub{font-size:12px;color:var(--text-tertiary);margin-top:4px;letter-spacing:-.01em}
+
+/* ── Meta cards ── */
+.meta-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
+@media(max-width:900px){.meta-row{grid-template-columns:1fr}}
 .meta-card{
-  background:var(--glass);border:1px solid var(--border);
-  border-radius:var(--r);padding:18px 20px;
-  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  background:var(--surface-raised);border:1px solid var(--border);
+  border-radius:var(--radius);padding:16px 20px;
+  transition:var(--transition);
 }
-.meta-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}
-.meta-value{font-size:15px;font-weight:700;color:var(--text)}
-.meta-sub{font-size:12px;color:var(--muted);margin-top:4px}
-/* Charts */
-.chart-row{display:grid;grid-template-columns:260px 1fr;gap:16px;margin-bottom:20px}
+.meta-card:hover{border-color:var(--border-hover)}
+.meta-label{font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+.meta-value{font-size:15px;font-weight:700;color:var(--text);letter-spacing:-.01em}
+.meta-sub{font-size:12px;color:var(--text-tertiary);margin-top:3px}
+
+/* ── Cards ── */
 .card{
-  background:var(--glass);border:1px solid var(--border);
-  border-radius:var(--r);padding:22px;
-  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  background:var(--surface-raised);border:1px solid var(--border);
+  border-radius:var(--radius);padding:20px;
   position:relative;overflow:hidden;
+  transition:var(--transition);
 }
-.card::after{
-  content:'';position:absolute;inset:0;pointer-events:none;border-radius:var(--r);
-  background:linear-gradient(135deg,rgba(255,255,255,.04) 0%,transparent 50%);
+.card:hover{border-color:var(--border-hover)}
+.card-title{
+  font-size:11px;font-weight:700;color:var(--text-tertiary);
+  text-transform:uppercase;letter-spacing:.06em;
+  margin-bottom:16px;display:flex;align-items:center;gap:8px;
 }
-.card-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:18px;display:flex;align-items:center;gap:8px}
-.card-title::before{content:'';width:3px;height:14px;border-radius:2px;background:linear-gradient(to bottom,#7c95ff,#c084fc)}
+.card-title::before{content:'';width:3px;height:12px;border-radius:2px;background:linear-gradient(to bottom,var(--blue),var(--purple))}
+
+/* ── Charts ── */
+.chart-row{display:grid;grid-template-columns:1fr 220px;gap:14px;margin-bottom:18px}
+@media(max-width:900px){.chart-row{grid-template-columns:1fr}}
 .chart-wrap{position:relative;height:200px}
-/* Trace */
+
+/* ── Trace cards ── */
 .item{
-  background:var(--glass);border:1px solid var(--border);
-  border-radius:var(--r);margin-bottom:10px;overflow:hidden;
-  backdrop-filter:blur(12px);transition:border-color .2s;
+  background:var(--surface-raised);border:1px solid var(--border);
+  border-radius:var(--radius);margin-bottom:10px;overflow:hidden;
+  transition:var(--transition);
 }
-.item:hover{border-color:var(--border2)}
+.item:hover{border-color:var(--border-hover)}
 .item-head{
-  padding:15px 20px;display:flex;align-items:center;gap:12px;
+  padding:14px 20px;display:flex;align-items:center;gap:10px;
   cursor:pointer;transition:background .15s;
 }
-.item-head:hover{background:rgba(255,255,255,.03)}
-.item-name{font-weight:600;font-size:13px;flex:1;letter-spacing:-.01em}
-.chevron{color:var(--muted);font-size:11px;transition:transform .2s}
+.item-head:hover{background:var(--surface-2)}
+.item-name{font-weight:600;font-size:14px;flex:1;letter-spacing:-.02em}
+.item-meta{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--text-tertiary);flex-shrink:0}
+.item-meta-pill{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:2px 8px;border-radius:4px;background:var(--surface-2);
+  font-size:11px;font-weight:500;white-space:nowrap;
+}
+.chevron{color:var(--text-tertiary);font-size:10px;transition:transform .2s;flex-shrink:0}
 details[open] .turn-chevron{transform:rotate(90deg)}
 .item-body{
   padding:20px;border-top:1px solid var(--border);
-  background:rgba(0,0,0,.25);
+  background:rgba(0,0,0,.15);
 }
 .mermaid-box{
-  background:rgba(0,0,0,.4);border:1px solid var(--border);
-  border-radius:10px;padding:32px 24px;overflow-x:auto;
-  min-height:220px;
+  background:rgba(0,0,0,.25);border:1px solid var(--border-subtle);
+  border-radius:var(--radius-sm);padding:28px 20px;overflow-x:auto;
+  min-height:200px;
 }
-.mermaid-box svg{
-  min-width:560px;max-width:100%;height:auto;display:block;margin:0 auto;
-}
+.mermaid-box svg{min-width:560px;max-width:100%;height:auto;display:block;margin:0 auto}
 .mermaid-box .mermaid{min-width:560px}
-/* Diff */
-.diff-item{
-  background:var(--glass);border:1px solid var(--border);
-  border-radius:var(--r);margin-bottom:10px;overflow:hidden;
-  backdrop-filter:blur(12px);
+
+/* ── Chat-style conversation turns ── */
+.chat-turns{display:flex;flex-direction:column;gap:2px;margin-top:16px}
+.chat-turn-header{
+  font-size:11px;font-weight:700;color:var(--text-tertiary);
+  text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;
 }
-.diff-head{padding:15px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--border)}
-.diff-name{font-weight:600;font-size:13px;flex:1}
+.chat-bubble{
+  max-width:85%;padding:10px 14px;font-size:13px;line-height:1.55;
+  letter-spacing:-.01em;border-radius:var(--radius-sm);
+  animation:fadeIn .2s ease-out;
+}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.chat-bubble.user{
+  align-self:flex-end;
+  background:rgba(129,140,248,.12);border:1px solid rgba(129,140,248,.15);
+  color:var(--text);border-bottom-right-radius:4px;
+}
+.chat-bubble.agent{
+  align-self:flex-start;
+  background:var(--surface-2);border:1px solid var(--border);
+  color:var(--text-secondary);border-bottom-left-radius:4px;
+}
+.chat-meta{
+  display:flex;align-items:center;gap:8px;padding:4px 0;
+  font-size:10px;color:var(--text-tertiary);
+}
+.chat-meta.user-side{justify-content:flex-end}
+.chat-tool-tag{
+  display:inline-flex;align-items:center;gap:3px;
+  padding:2px 7px;border-radius:4px;
+  background:rgba(129,140,248,.08);border:1px solid rgba(129,140,248,.12);
+  font-size:10px;font-weight:600;color:var(--blue);font-family:var(--mono);
+}
+.chat-eval{
+  margin-top:2px;padding:6px 10px;border-radius:var(--radius-xs);
+  font-size:11px;font-weight:500;max-width:85%;
+}
+.chat-eval.pass{background:rgba(52,211,153,.06);border:1px solid rgba(52,211,153,.15);color:var(--green)}
+.chat-eval.fail{background:rgba(251,113,133,.06);border:1px solid rgba(251,113,133,.15);color:var(--red)}
+
+/* ── Diff tab ── */
+.diff-item{
+  background:var(--surface-raised);border:1px solid var(--border);
+  border-radius:var(--radius);margin-bottom:10px;overflow:hidden;
+  transition:var(--transition);
+}
+.diff-item:hover{border-color:var(--border-hover)}
+.diff-head{padding:14px 20px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--border)}
+.diff-name{font-weight:600;font-size:14px;flex:1;letter-spacing:-.02em}
 .diff-cols{display:grid;grid-template-columns:1fr 1fr}
 .diff-col{padding:16px 20px}
 .diff-col+.diff-col{border-left:1px solid var(--border)}
-.col-title{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px}
-.tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.col-title{font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
+.tags{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px}
 .tag{
-  background:rgba(255,255,255,.05);border:1px solid var(--border);
-  border-radius:5px;padding:2px 9px;font-size:11px;font-family:monospace;
+  background:var(--surface-2);border:1px solid var(--border);
+  border-radius:4px;padding:2px 8px;font-size:11px;font-family:var(--mono);
+  font-weight:500;letter-spacing:-.01em;
 }
-.tag.add{border-color:rgba(34,211,165,.3);color:var(--green);background:rgba(34,211,165,.08)}
-.tag.rem{border-color:rgba(255,107,138,.3);color:var(--red);background:rgba(255,107,138,.08)}
+.tag.add{border-color:rgba(52,211,153,.25);color:var(--green);background:rgba(52,211,153,.06)}
+.tag.rem{border-color:rgba(251,113,133,.25);color:var(--red);background:rgba(251,113,133,.06)}
 .outbox{
-  background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:8px;
-  padding:12px;font:12px/1.5 monospace;color:var(--muted);
+  background:rgba(0,0,0,.2);border:1px solid var(--border-subtle);border-radius:var(--radius-xs);
+  padding:12px;font:12px/1.6 var(--mono);color:var(--text-tertiary);
   white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;
 }
 .difflines{
-  background:rgba(0,0,0,.3);border:1px solid var(--border);border-radius:8px;
-  padding:10px;font:11px/1.5 monospace;max-height:160px;overflow-y:auto;margin-top:8px;
+  background:rgba(0,0,0,.2);border:1px solid var(--border-subtle);border-radius:var(--radius-xs);
+  padding:10px;font:11px/1.6 var(--mono);max-height:180px;overflow-y:auto;margin-top:8px;
 }
-.difflines .a{color:var(--green)}.difflines .r{color:var(--red)}
-/* Timeline */
-.tl-row{display:flex;align-items:center;gap:12px;margin-bottom:8px}
-.tl-label{font-size:11px;color:var(--muted);width:210px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tl-track{flex:1;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:4px;height:24px;overflow:hidden;position:relative}
-.tl-fill{height:100%;border-radius:4px;transition:width .7s cubic-bezier(.4,0,.2,1);position:relative}
-.tl-fill.ok{background:linear-gradient(90deg,rgba(34,211,165,.7),rgba(124,149,255,.4))}
-.tl-fill.err{background:linear-gradient(90deg,rgba(255,107,138,.7),rgba(251,191,36,.4))}
-.tl-ms{font-size:10px;color:var(--muted);width:65px;text-align:right;flex-shrink:0}
-/* Sim */
-.sim{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
-/* Empty */
-.empty{text-align:center;padding:72px 40px;color:var(--muted)}
-.empty-icon{font-size:40px;margin-bottom:14px;display:block;filter:grayscale(1);opacity:.5}
-/* Compare table */
-table td,table th{transition:background .15s}
-table tr:hover td{background:rgba(255,255,255,.02)}
-/* Trajectory grid — side-by-side Mermaid in Diffs tab */
+.difflines .a{color:var(--green);background:rgba(52,211,153,.05);display:block;padding:0 4px;margin:0 -4px;border-radius:2px}
+.difflines .r{color:var(--red);background:rgba(251,113,133,.05);display:block;padding:0 4px;margin:0 -4px;border-radius:2px}
+/* Similarity progress bar */
+.sim-bar{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-tertiary)}
+.sim-track{width:48px;height:4px;background:var(--surface-3);border-radius:2px;overflow:hidden;display:inline-block;vertical-align:middle}
+.sim-fill{height:100%;border-radius:2px;transition:width .6s cubic-bezier(.4,0,.2,1)}
+.sim-fill.high{background:var(--green)}.sim-fill.mid{background:var(--yellow)}.sim-fill.low{background:var(--red)}
+
+/* ── Pipeline vis for tool sequence diff ── */
+.pipeline{display:flex;flex-direction:column;gap:8px;padding:16px 20px;border-top:1px solid var(--border)}
+.pipeline-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.pipeline-label{font-size:10px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.06em;width:64px;flex-shrink:0}
+.pipeline-step{
+  display:inline-flex;align-items:center;padding:4px 10px;border-radius:4px;
+  font-size:11px;font-family:var(--mono);font-weight:500;
+  background:var(--surface-2);border:1px solid var(--border);color:var(--text-secondary);
+  position:relative;
+}
+.pipeline-step+.pipeline-step::before{
+  content:'';position:absolute;left:-8px;top:50%;width:6px;height:1px;background:var(--border-hover);
+}
+.pipeline-step.matched{border-color:rgba(52,211,153,.2);background:rgba(52,211,153,.04)}
+.pipeline-step.added{border-color:rgba(52,211,153,.3);color:var(--green);background:rgba(52,211,153,.06)}
+.pipeline-step.removed{border-color:rgba(251,113,133,.3);color:var(--red);background:rgba(251,113,133,.06);text-decoration:line-through}
+
+/* ── Timeline ── */
+.tl-swimlane{margin-bottom:20px}
+.tl-swimlane-label{font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;letter-spacing:-.01em}
+.tl-track{display:flex;gap:2px;align-items:center;height:28px}
+.tl-bar{
+  height:100%;border-radius:4px;display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:600;color:rgba(255,255,255,.8);letter-spacing:-.01em;
+  min-width:32px;padding:0 6px;cursor:default;
+  transition:var(--transition);position:relative;
+}
+.tl-bar:hover{filter:brightness(1.2);transform:scaleY(1.15)}
+.tl-bar.ok{background:linear-gradient(135deg,rgba(129,140,248,.6),rgba(52,211,153,.4))}
+.tl-bar.err{background:linear-gradient(135deg,rgba(251,113,133,.6),rgba(251,191,36,.4))}
+
+/* ── Tables ── */
+.ev-table{width:100%;border-collapse:collapse;font-size:13px}
+.ev-table th{
+  text-align:left;padding:8px 12px;color:var(--text-tertiary);
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  border-bottom:1px solid var(--border);background:var(--surface-1);
+}
+.ev-table td{padding:10px 12px;border-bottom:1px solid var(--border-subtle);transition:background .15s}
+.ev-table tr:hover td{background:var(--surface-1)}
+.ev-table .mono{font-family:var(--mono);font-size:12px}
+.ev-table .num{font-weight:700;font-variant-numeric:tabular-nums}
+
+/* ── Empty states ── */
+.empty{text-align:center;padding:80px 40px;color:var(--text-tertiary)}
+.empty-icon{font-size:36px;margin-bottom:12px;display:block;opacity:.4}
+.empty code{background:var(--surface-3);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:12px}
+
+/* ── Trajectory grid ── */
 .traj-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)}
 .traj-col .col-title{padding-bottom:10px}
-/* Scrollbar */
+
+/* ── Scrollbar ── */
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:4px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.18)}
+
+/* ── Param diff table ── */
+.param-table{width:100%;border-collapse:collapse;font-size:12px}
+.param-table th{
+  text-align:left;padding:6px 10px;color:var(--text-tertiary);
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  border-bottom:1px solid var(--border);
+}
+.param-table td{padding:6px 10px;border-bottom:1px solid var(--border-subtle)}
+
+/* ── Compare ── */
+table td,table th{transition:background .15s}
 </style>
 </head>
 <body>
@@ -839,37 +953,68 @@ table tr:hover td{background:rgba(255,255,255,.02)}
     {% if compare %}<button class="tab" onclick="show('compare',this)">Compare Runs</button>{% endif %}
   </div>
 
-  <!-- OVERVIEW -->
+  <!-- ═══════════ OVERVIEW ═══════════ -->
   <div id="p-overview" class="panel {% if default_tab == 'overview' %}on{% endif %}">
     {% if kpis %}
     <div class="kpi-row">
       <div class="kpi {% if kpis.pass_rate >= 80 %}kpi-pass{% else %}kpi-fail{% endif %}">
-        <span class="kpi-icon">{% if kpis.pass_rate == 100 %}🟢{% elif kpis.pass_rate >= 80 %}✅{% else %}⚠️{% endif %}</span>
-        <div class="kpi-label">Pass Rate</div>
+        <div class="kpi-top">
+          <div class="kpi-label">Pass Rate</div>
+          <div class="kpi-ring">
+            <svg width="44" height="44" viewBox="0 0 44 44">
+              <circle cx="22" cy="22" r="18" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="3"/>
+              <circle cx="22" cy="22" r="18" fill="none"
+                stroke="{% if kpis.pass_rate >= 80 %}var(--green){% elif kpis.pass_rate >= 60 %}var(--yellow){% else %}var(--red){% endif %}"
+                stroke-width="3" stroke-linecap="round"
+                stroke-dasharray="{{ (kpis.pass_rate / 100 * 113.1)|round(1) }} 113.1"
+                style="filter:drop-shadow(0 0 4px {% if kpis.pass_rate >= 80 %}rgba(52,211,153,.4){% else %}rgba(251,113,133,.4){% endif %})"/>
+            </svg>
+            <div class="kpi-ring-label">{{ kpis.passed }}/{{ kpis.total }}</div>
+          </div>
+        </div>
         <div class="kpi-num {% if kpis.pass_rate >= 80 %}c-green{% elif kpis.pass_rate >= 60 %}c-yellow{% else %}c-red{% endif %}">{{ kpis.pass_rate }}%</div>
         <div class="kpi-sub">{{ kpis.passed }} of {{ kpis.total }} tests</div>
-        <div class="kpi-bar"><div class="kpi-bar-fill {% if kpis.pass_rate >= 80 %}green{% else %}red{% endif %}" style="width:{{ kpis.pass_rate }}%"></div></div>
       </div>
       <div class="kpi {% if kpis.avg_score >= 80 %}kpi-pass{% else %}kpi-blue{% endif %}">
-        <span class="kpi-icon">📊</span>
-        <div class="kpi-label">Avg Score</div>
+        <div class="kpi-top">
+          <div class="kpi-label">Avg Score</div>
+          <div class="kpi-ring">
+            <svg width="44" height="44" viewBox="0 0 44 44">
+              <circle cx="22" cy="22" r="18" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="3"/>
+              <circle cx="22" cy="22" r="18" fill="none"
+                stroke="{% if kpis.avg_score >= 80 %}var(--green){% elif kpis.avg_score >= 60 %}var(--yellow){% else %}var(--red){% endif %}"
+                stroke-width="3" stroke-linecap="round"
+                stroke-dasharray="{{ (kpis.avg_score / 100 * 113.1)|round(1) }} 113.1"
+                style="filter:drop-shadow(0 0 4px rgba(129,140,248,.3))"/>
+            </svg>
+            <div class="kpi-ring-label">{{ kpis.avg_score|int }}</div>
+          </div>
+        </div>
         <div class="kpi-num {% if kpis.avg_score >= 80 %}c-green{% elif kpis.avg_score >= 60 %}c-yellow{% else %}c-red{% endif %}">{{ kpis.avg_score }}</div>
         <div class="kpi-sub">out of 100</div>
-        <div class="kpi-bar"><div class="kpi-bar-fill {% if kpis.avg_score >= 80 %}green{% else %}red{% endif %}" style="width:{{ kpis.avg_score }}%"></div></div>
       </div>
       <div class="kpi kpi-blue">
-        <span class="kpi-icon">💰</span>
-        <div class="kpi-label">Total Cost</div>
+        <div class="kpi-top">
+          <div class="kpi-label">Total Cost</div>
+        </div>
         <div class="kpi-num c-blue">${{ kpis.total_cost }}</div>
-        <div class="kpi-sub">{% if kpis.total_tokens %}{{ '{:,}'.format(kpis.total_tokens) }} tokens (verified){% elif kpis.total_cost > 0 %}reported by adapter (no token data){% else %}this run{% endif %}</div>
-        <div class="kpi-bar"><div class="kpi-bar-fill blue" style="width:30%"></div></div>
+        <div class="kpi-sub">
+          {% if kpis.total_tokens %}{{ '{:,}'.format(kpis.total_tokens) }} tokens (verified){% elif kpis.total_cost > 0 %}reported by adapter (no token data){% else %}this run{% endif %}
+          {% if kpis.models_display and kpis.models_display != 'Unknown' %}<br>{{ kpis.models_display }}{% endif %}
+        </div>
+        {% if kpis.total_input_tokens or kpis.total_output_tokens %}
+        <div style="margin-top:8px;display:flex;gap:8px;font-size:11px">
+          <span style="color:var(--text-tertiary)">in <span style="color:var(--blue);font-weight:600;font-family:var(--mono)">{{ '{:,}'.format(kpis.total_input_tokens) }}</span></span>
+          <span style="color:var(--text-tertiary)">out <span style="color:var(--purple);font-weight:600;font-family:var(--mono)">{{ '{:,}'.format(kpis.total_output_tokens) }}</span></span>
+        </div>
+        {% endif %}
       </div>
       <div class="kpi kpi-blue">
-        <span class="kpi-icon">⚡</span>
-        <div class="kpi-label">Avg Latency</div>
-        <div class="kpi-num c-blue">{{ kpis.avg_latency_ms|int }}<span style="font-size:16px;font-weight:500">ms</span></div>
+        <div class="kpi-top">
+          <div class="kpi-label">Avg Latency</div>
+        </div>
+        <div class="kpi-num c-blue">{{ kpis.avg_latency_ms|int }}<span style="font-size:14px;font-weight:500;color:var(--text-tertiary);margin-left:2px">ms</span></div>
         <div class="kpi-sub">per test</div>
-        <div class="kpi-bar"><div class="kpi-bar-fill blue" style="width:45%"></div></div>
       </div>
     </div>
 
@@ -928,53 +1073,54 @@ table tr:hover td{background:rgba(255,255,255,.02)}
     </div>
     {% endif %}
 
+    <!-- Score distribution (horizontal bars) + compact donut -->
     <div class="chart-row">
+      <div class="card">
+        <div class="card-title">Score per Test</div>
+        <div style="position:relative;height:{{ [kpis.scores|length * 36 + 40, 180]|max }}px"><canvas id="bars"></canvas></div>
+      </div>
       <div class="card">
         <div class="card-title">Distribution</div>
         <div class="chart-wrap"><canvas id="donut"></canvas></div>
-      </div>
-      <div class="card">
-        <div class="card-title">Score per Test</div>
-        <div class="chart-wrap"><canvas id="bars"></canvas></div>
       </div>
     </div>
 
     <!-- Execution cost breakdown -->
     <div class="card">
       <div class="card-title">Execution Cost per Query</div>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <table class="ev-table">
         {% set has_tokens = traces | selectattr('tokens') | list | length > 0 %}
         <thead>
           <tr>
-            <th style="text-align:left;padding:8px 12px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)">Test</th>
-            <th style="text-align:left;padding:8px 12px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)">Model</th>
-            <th style="text-align:left;padding:8px 12px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)">Trace Cost</th>
-            {% if has_tokens %}<th style="text-align:left;padding:8px 12px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)">Tokens</th>{% endif %}
-            <th style="text-align:left;padding:8px 12px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)">Latency</th>
-            <th style="text-align:left;padding:8px 12px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)">Score</th>
+            <th>Test</th>
+            <th>Model</th>
+            <th>Trace Cost</th>
+            {% if has_tokens %}<th>Tokens</th>{% endif %}
+            <th>Latency</th>
+            <th>Score</th>
           </tr>
         </thead>
         <tbody>
           {% for t in traces %}
           <tr>
-            <td style="padding:10px 12px;border-bottom:1px solid var(--border);font-weight:500">{{ t.name }}</td>
-            <td style="padding:10px 12px;border-bottom:1px solid var(--border);color:var(--muted)">{{ t.model }}</td>
-            <td style="padding:10px 12px;border-bottom:1px solid var(--border);font-family:monospace;color:{% if t.cost == '$0' %}var(--muted){% else %}var(--blue){% endif %};font-weight:600">{{ t.cost }}</td>
-            {% if has_tokens %}<td style="padding:10px 12px;border-bottom:1px solid var(--border);color:var(--muted)">{{ t.tokens or '—' }}</td>{% endif %}
-            <td style="padding:10px 12px;border-bottom:1px solid var(--border);color:var(--muted)">{{ t.latency }}</td>
-            <td style="padding:10px 12px;border-bottom:1px solid var(--border);font-weight:700;color:{% if t.score >= 80 %}var(--green){% elif t.score >= 60 %}var(--yellow){% else %}var(--red){% endif %}">{{ t.score }}</td>
+            <td style="font-weight:600">{{ t.name }}</td>
+            <td class="mono" style="color:var(--text-tertiary)">{{ t.model }}</td>
+            <td class="mono num" style="color:{% if t.cost == '$0' %}var(--text-tertiary){% else %}var(--blue){% endif %}">{{ t.cost }}</td>
+            {% if has_tokens %}<td class="mono" style="color:var(--text-tertiary)">{{ t.tokens or '—' }}</td>{% endif %}
+            <td style="color:var(--text-tertiary)">{{ t.latency }}</td>
+            <td class="num" style="color:{% if t.score >= 80 %}var(--green){% elif t.score >= 60 %}var(--yellow){% else %}var(--red){% endif %}">{{ t.score }}</td>
           </tr>
           {% endfor %}
-          <tr style="background:rgba(255,255,255,.02)">
-            <td style="padding:10px 12px;font-weight:700;color:var(--text)">Total</td>
-            <td style="padding:10px 12px;color:var(--muted)">—</td>
-            <td style="padding:10px 12px;font-family:monospace;font-weight:700;color:var(--blue)">${{ kpis.total_cost }}</td>
-            <td colspan="{{ 3 if has_tokens else 2 }}" style="padding:10px 12px;font-size:11px;color:var(--muted)">avg ${{ '%.6f'|format(kpis.total_cost / kpis.total) if kpis.total else '0' }} per query</td>
+          <tr style="background:var(--surface-1)">
+            <td style="font-weight:700">Total</td>
+            <td style="color:var(--text-tertiary)">—</td>
+            <td class="mono num" style="color:var(--blue)">${{ kpis.total_cost }}</td>
+            <td colspan="{{ 3 if has_tokens else 2 }}" style="font-size:11px;color:var(--text-tertiary)">avg ${{ '%.6f'|format(kpis.total_cost / kpis.total) if kpis.total else '0' }} per query</td>
           </tr>
         </tbody>
       </table>
-      <div style="margin-top:12px;font-size:11px;color:var(--muted)">
-        Trace cost comes from the agent execution trace only. Mock or non-metered tools will show <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:4px">$0</code> even when EvalView used a separate judge or local model during evaluation.
+      <div style="margin-top:12px;font-size:11px;color:var(--text-tertiary);line-height:1.5">
+        Trace cost comes from the agent execution trace only. Mock or non-metered tools will show <code style="background:var(--surface-3);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:11px">$0</code> even when EvalView used a separate judge or local model during evaluation.
         {% if judge_usage and judge_usage.call_count %} This check also used {{ judge_usage.call_count }} EvalView judge call{% if judge_usage.call_count != 1 %}s{% endif %} ({{ judge_usage.total_tokens }} tokens).{% endif %}
       </div>
     </div>
@@ -984,7 +1130,7 @@ table tr:hover td{background:rgba(255,255,255,.02)}
     {% endif %}
   </div>
 
-  <!-- TRACE -->
+  <!-- ═══════════ EXECUTION TRACE ═══════════ -->
   <div id="p-trace" class="panel {% if default_tab == 'trace' %}on{% endif %}">
     {% if traces %}
       {% for t in traces %}
@@ -992,17 +1138,17 @@ table tr:hover td{background:rgba(255,255,255,.02)}
         <div class="item-head" onclick="tog('tr{{ loop.index }}',this)">
           <span class="badge {% if t.passed %}b-green{% else %}b-red{% endif %}">{% if t.passed %}✓{% else %}✗{% endif %}</span>
           <span class="item-name">{{ t.name }}</span>
-          <span style="display:flex;align-items:center;gap:12px;font-size:11px;color:var(--muted)">
-            <span style="color:{% if t.score >= 80 %}var(--green){% elif t.score >= 60 %}var(--yellow){% else %}var(--red){% endif %}">● {{ t.score }}/100</span>
-            {% if t.cost != "$0" %}<span>💰 {{ t.cost }}</span>{% endif %}
-            <span>⚡ {{ t.latency }}</span>
-            {% if t.tokens %}<span>🔤 {{ t.tokens }}</span>{% endif %}
-            <span>🧠 {{ t.model }}</span>
-          </span>
-          <span class="chevron" style="display:inline-flex;align-items:center;gap:4px">▾ <span style="font-size:10px;font-weight:400">details</span></span>
+          <div class="item-meta">
+            <span class="item-meta-pill" style="color:{% if t.score >= 80 %}var(--green){% elif t.score >= 60 %}var(--yellow){% else %}var(--red){% endif %}">{{ t.score }}/100</span>
+            {% if t.cost != "$0" %}<span class="item-meta-pill">💰 {{ t.cost }}</span>{% endif %}
+            <span class="item-meta-pill">⚡ {{ t.latency }}</span>
+            {% if t.tokens %}<span class="item-meta-pill">{{ t.tokens }}</span>{% endif %}
+            <span class="item-meta-pill" style="color:var(--text-tertiary)">🧠 {{ t.model }}</span>
+          </div>
+          <span class="chevron">▾</span>
         </div>
         <div id="tr{{ loop.index }}" class="item-body" {% if not loop.first %}style="display:none"{% endif %}>
-          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">
             <span class="badge b-blue">Model: {{ t.model }}</span>
             {% if t.input_tokens or t.output_tokens %}
             <span class="badge b-blue">in {{ '{:,}'.format(t.input_tokens) }} / out {{ '{:,}'.format(t.output_tokens) }} tokens</span>
@@ -1019,85 +1165,62 @@ table tr:hover td{background:rgba(255,255,255,.02)}
             {% endif %}
           </div>
           {% if t.query %}
-          <div style="background:rgba(124,149,255,.06);border:1px solid rgba(124,149,255,.2);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--muted)">
-            <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:rgba(124,149,255,.7);margin-right:8px">Query</span>{{ t.query }}
+          <div style="background:rgba(129,140,248,.06);border:1px solid rgba(129,140,248,.12);border-radius:var(--radius-xs);padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--text-secondary)">
+            <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:rgba(129,140,248,.6);margin-right:8px">Query</span>{{ t.query }}
           </div>
           {% endif %}
           {% if t.has_steps %}
           <div class="mermaid-box"><div class="mermaid">{{ t.diagram }}</div></div>
           {% else %}
           <div style="display:flex;align-items:center;justify-content:center;padding:20px 0 8px">
-            <span style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:8px 18px;font-size:12px;color:var(--muted)">
+            <span style="display:inline-flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:8px 18px;font-size:12px;color:var(--text-tertiary)">
               <span style="opacity:.5">◎</span> Direct response — no tools invoked
             </span>
           </div>
           {% endif %}
           {% if t.turns %}
-          <div style="margin-top: 16px;">
-            <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Conversation Turns</div>
+          <div class="chat-turns">
+            <div class="chat-turn-header">Conversation Turns</div>
 
             {% for turn in t.turns %}
-            <details style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;overflow:hidden;" {% if loop.first %}open{% endif %}>
-              <summary style="padding:10px 14px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:space-between;color:var(--blue);">
-                <span>Turn {{ turn.index }}{% if turn.tools %} · {{ turn.tools|join(', ') }}{% endif %}</span>
-                <span style="font-size:10px;color:var(--muted);font-weight:400;display:inline-flex;align-items:center;gap:3px"><span style="transition:transform .2s;display:inline-block" class="turn-chevron">▶</span> details</span>
-              </summary>
+            <!-- Turn {{ turn.index }} -->
+            <div class="chat-meta user-side">
+              Turn {{ turn.index }}
+              {% if turn.tools %}· {% for tool in turn.tools %}<span class="chat-tool-tag">{{ tool }}</span> {% endfor %}{% endif %}
+              · ⚡ {{ turn.latency_ms|round(1) }}ms
+              · 💰 ${{ '%.6f'|format(turn.cost) if turn.cost else '0' }}
+            </div>
+            <div class="chat-bubble user">{{ turn.query }}</div>
 
-              <div style="padding:10px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.2);font-family:monospace;font-size:11px;color:var(--muted);">
+            {% if turn.output %}
+            <div class="chat-bubble agent">{{ turn.output }}</div>
+            {% endif %}
 
-                <div style="margin-bottom: 10px; color: var(--text); font-family: var(--font); line-height: 1.5;">
-                  <span style="color:var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; margin-right: 8px;">Query</span>{{ turn.query }}
-                </div>
-
-                {% if turn.output %}
-                <div style="margin-bottom: 10px; color: var(--text); font-family: var(--font); line-height: 1.5;">
-                  <span style="color:var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; margin-right: 8px;">Response</span>{{ turn.output }}
-                </div>
-                {% endif %}
-
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <span style="color:var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase;">Tools called</span>
-                  <div style="display: flex; flex-wrap: wrap; gap: 4px;">
-                    {% if turn.tools %}
-                      {% for tool in turn.tools %}<span style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:4px;color:var(--muted);">{{ tool }}</span>{% endfor %}
-                    {% else %}
-                      <span style="opacity: 0.5;">None</span>
-                    {% endif %}
-                  </div>
-                </div>
-                <div style="display:flex;align-items:center;gap:12px;margin-top:10px;color:var(--muted);font-size:11px;font-family:var(--font)">
-                  <span>⚡ {{ turn.latency_ms|round(1) }}ms</span>
-                  <span>💰 ${{ '%.6f'|format(turn.cost) if turn.cost else '0' }}</span>
-                </div>
-
-                {% if turn.evaluation %}
-                <div style="margin-top:10px;padding:8px 12px;border-radius:6px;font-family:var(--font);font-size:11px;{% if turn.evaluation.passed %}background:rgba(34,211,165,.08);border:1px solid rgba(34,211,165,.2);{% else %}background:rgba(255,68,68,.08);border:1px solid rgba(255,68,68,.2);{% endif %}">
-                  <span style="font-weight:700;{% if turn.evaluation.passed %}color:var(--green);{% else %}color:var(--red);{% endif %}">
-                    {% if turn.evaluation.passed %}✅ PASS{% else %}❌ FAIL{% endif %}
-                  </span>
-                  {% if turn.evaluation.tool_accuracy is not none %}
-                  <span style="margin-left:8px;color:var(--muted)">Tool accuracy: {{ (turn.evaluation.tool_accuracy * 100)|round(0) }}%</span>
-                  {% endif %}
-                  {% if turn.evaluation.forbidden_violations %}
-                  <span style="margin-left:8px;color:var(--red)">Forbidden: {{ turn.evaluation.forbidden_violations|join(', ') }}</span>
-                  {% endif %}
-                  {% if turn.evaluation.contains_failed %}
-                  <span style="margin-left:8px;color:var(--red)">Missing: {{ turn.evaluation.contains_failed|join(', ') }}</span>
-                  {% endif %}
-                  {% if turn.evaluation.not_contains_failed %}
-                  <span style="margin-left:8px;color:var(--red)">Prohibited: {{ turn.evaluation.not_contains_failed|join(', ') }}</span>
-                  {% endif %}
-                </div>
-                {% endif %}
-
-              </div>
-            </details>
+            {% if turn.evaluation %}
+            <div class="chat-eval {% if turn.evaluation.passed %}pass{% else %}fail{% endif %}">
+              <span style="font-weight:700">
+                {% if turn.evaluation.passed %}✅ PASS{% else %}❌ FAIL{% endif %}
+              </span>
+              {% if turn.evaluation.tool_accuracy is not none %}
+              <span style="margin-left:8px;opacity:.7">Tool accuracy: {{ (turn.evaluation.tool_accuracy * 100)|round(0) }}%</span>
+              {% endif %}
+              {% if turn.evaluation.forbidden_violations %}
+              <span style="margin-left:8px;color:var(--red)">Forbidden: {{ turn.evaluation.forbidden_violations|join(', ') }}</span>
+              {% endif %}
+              {% if turn.evaluation.contains_failed %}
+              <span style="margin-left:8px;color:var(--red)">Missing: {{ turn.evaluation.contains_failed|join(', ') }}</span>
+              {% endif %}
+              {% if turn.evaluation.not_contains_failed %}
+              <span style="margin-left:8px;color:var(--red)">Prohibited: {{ turn.evaluation.not_contains_failed|join(', ') }}</span>
+              {% endif %}
+            </div>
+            {% endif %}
             {% endfor %}
           </div>
           {% endif %}
           {% if t.output and not t.turns %}
-          <div style="background:rgba(34,211,165,.04);border:1px solid rgba(34,211,165,.15);border-radius:8px;padding:10px 14px;margin-top:14px;font-size:12px;color:var(--muted)">
-            <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:rgba(34,211,165,.7);margin-right:8px">Response</span>{{ t.output[:300] }}{% if t.output|length > 300 %}...{% endif %}
+          <div style="background:rgba(52,211,153,.04);border:1px solid rgba(52,211,153,.1);border-radius:var(--radius-xs);padding:10px 14px;margin-top:14px;font-size:13px;color:var(--text-secondary)">
+            <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:rgba(52,211,153,.5);margin-right:8px">Response</span>{{ t.output[:300] }}{% if t.output|length > 300 %}...{% endif %}
           </div>
           {% endif %}
         </div>
@@ -1108,7 +1231,7 @@ table tr:hover td{background:rgba(255,255,255,.02)}
     {% endif %}
   </div>
 
-  <!-- DIFFS -->
+  <!-- ═══════════ DIFFS ═══════════ -->
   <div id="p-diffs" class="panel {% if default_tab == 'diffs' %}on{% endif %}">
     {% if diff_rows %}
       {% for d in diff_rows %}
@@ -1122,19 +1245,42 @@ table tr:hover td{background:rgba(255,255,255,.02)}
           {% if d.score_delta != 0 %}
             <span class="badge {% if d.score_delta > 0 %}b-green{% else %}b-red{% endif %}">{% if d.score_delta > 0 %}+{% endif %}{{ d.score_delta }} pts</span>
           {% endif %}
-          <span class="sim">lexical <b style="color:{% if d.similarity >= 80 %}var(--green){% elif d.similarity >= 50 %}var(--yellow){% else %}var(--red){% endif %}">{{ d.similarity }}%</b></span>
+          <span class="sim-bar">lexical
+            <span class="sim-track"><span class="sim-fill {% if d.similarity >= 80 %}high{% elif d.similarity >= 50 %}mid{% else %}low{% endif %}" style="width:{{ d.similarity }}%"></span></span>
+            <b style="color:{% if d.similarity >= 80 %}var(--green){% elif d.similarity >= 50 %}var(--yellow){% else %}var(--red){% endif %}">{{ d.similarity }}%</b>
+          </span>
           {% if d.semantic_similarity is not none %}
-          <span class="sim">semantic <b style="color:{% if d.semantic_similarity >= 80 %}var(--green){% elif d.semantic_similarity >= 50 %}var(--yellow){% else %}var(--red){% endif %}">{{ d.semantic_similarity }}%</b></span>
+          <span class="sim-bar">semantic
+            <span class="sim-track"><span class="sim-fill {% if d.semantic_similarity >= 80 %}high{% elif d.semantic_similarity >= 50 %}mid{% else %}low{% endif %}" style="width:{{ d.semantic_similarity }}%"></span></span>
+            <b style="color:{% if d.semantic_similarity >= 80 %}var(--green){% elif d.semantic_similarity >= 50 %}var(--yellow){% else %}var(--red){% endif %}">{{ d.semantic_similarity }}%</b>
+          </span>
           {% endif %}
         </div>
+
+        <!-- Tool sequence pipeline -->
+        {% if d.golden_tools or d.actual_tools %}
+        <div class="pipeline">
+          <div class="pipeline-row">
+            <span class="pipeline-label">Baseline</span>
+            {% for t in d.golden_tools %}<span class="pipeline-step {% if t not in d.actual_tools %}removed{% else %}matched{% endif %}">{{ t }}</span>{% endfor %}
+            {% if not d.golden_tools %}<span style="font-size:11px;color:var(--text-tertiary);font-style:italic">No tools</span>{% endif %}
+          </div>
+          <div class="pipeline-row">
+            <span class="pipeline-label">Current</span>
+            {% for t in d.actual_tools %}<span class="pipeline-step {% if t not in d.golden_tools %}added{% else %}matched{% endif %}">{{ t }}</span>{% endfor %}
+            {% if not d.actual_tools %}<span style="font-size:11px;color:var(--text-tertiary);font-style:italic">No tools</span>{% endif %}
+          </div>
+        </div>
+        {% endif %}
+
         <div class="diff-cols">
           <div class="diff-col">
-            <div class="col-title">Baseline</div>
+            <div class="col-title">Baseline Output</div>
             <div class="tags">{% for t in d.golden_tools %}<span class="tag {% if t not in d.actual_tools %}rem{% endif %}">{{ t }}</span>{% endfor %}</div>
             <div class="outbox">{{ d.golden_out }}</div>
           </div>
           <div class="diff-col">
-            <div class="col-title">Current</div>
+            <div class="col-title">Current Output</div>
             <div class="tags">{% for t in d.actual_tools %}<span class="tag {% if t not in d.golden_tools %}add{% endif %}">{{ t }}</span>{% endfor %}</div>
             <div class="outbox">{{ d.actual_out }}</div>
             {% if d.diff_lines %}
@@ -1145,26 +1291,26 @@ table tr:hover td{background:rgba(255,255,255,.02)}
         {% if d.param_diffs %}
         <div style="padding:16px 20px;border-top:1px solid var(--border)">
           <div class="col-title" style="margin-bottom:12px">Parameter Changes</div>
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <table class="param-table">
             <thead>
               <tr>
-                <th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)">Step</th>
-                <th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)">Tool</th>
-                <th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)">Parameter</th>
-                <th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)">Baseline</th>
-                <th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)">Current</th>
-                <th style="text-align:center;padding:6px 10px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)">Match</th>
+                <th>Step</th>
+                <th>Tool</th>
+                <th>Parameter</th>
+                <th>Baseline</th>
+                <th>Current</th>
+                <th style="text-align:center">Match</th>
               </tr>
             </thead>
             <tbody>
               {% for p in d.param_diffs %}
               <tr>
-                <td style="padding:6px 10px;border-bottom:1px solid var(--border);color:var(--muted)">{{ p.step }}</td>
-                <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-family:monospace;color:var(--blue)">{{ p.tool }}</td>
-                <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-weight:600">{{ p.param }}</td>
-                <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-family:monospace;font-size:11px;{% if p.type == 'missing' %}color:var(--red){% else %}color:var(--muted){% endif %}">{{ p.golden or '—' }}</td>
-                <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-family:monospace;font-size:11px;{% if p.type == 'added' %}color:var(--green){% else %}color:var(--muted){% endif %}">{{ p.actual or '—' }}</td>
-                <td style="padding:6px 10px;border-bottom:1px solid var(--border);text-align:center;font-weight:600;color:{% if p.type == 'added' %}var(--green){% elif p.type == 'missing' %}var(--red){% elif p.similarity is not none %}{% if p.similarity >= 80 %}var(--green){% elif p.similarity >= 50 %}var(--yellow){% else %}var(--red){% endif %}{% else %}var(--yellow){% endif %}">{% if p.type == 'added' %}+new{% elif p.type == 'missing' %}-gone{% elif p.similarity is not none %}{{ p.similarity }}%{% else %}~{% endif %}</td>
+                <td style="color:var(--text-tertiary)">{{ p.step }}</td>
+                <td style="font-family:var(--mono);color:var(--blue)">{{ p.tool }}</td>
+                <td style="font-weight:600">{{ p.param }}</td>
+                <td style="font-family:var(--mono);font-size:11px;{% if p.type == 'missing' %}color:var(--red){% else %}color:var(--text-tertiary){% endif %}">{{ p.golden or '—' }}</td>
+                <td style="font-family:var(--mono);font-size:11px;{% if p.type == 'added' %}color:var(--green){% else %}color:var(--text-tertiary){% endif %}">{{ p.actual or '—' }}</td>
+                <td style="text-align:center;font-weight:600;color:{% if p.type == 'added' %}var(--green){% elif p.type == 'missing' %}var(--red){% elif p.similarity is not none %}{% if p.similarity >= 80 %}var(--green){% elif p.similarity >= 50 %}var(--yellow){% else %}var(--red){% endif %}{% else %}var(--yellow){% endif %}">{% if p.type == 'added' %}+new{% elif p.type == 'missing' %}-gone{% elif p.similarity is not none %}{{ p.similarity }}%{% else %}~{% endif %}</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -1186,11 +1332,11 @@ table tr:hover td{background:rgba(255,255,255,.02)}
       </div>
       {% endfor %}
     {% else %}
-      <div class="empty"><span class="empty-icon">✨</span>No diffs yet — run <code style="background:rgba(255,255,255,.08);padding:2px 6px;border-radius:4px">evalview check</code> to compare against a baseline</div>
+      <div class="empty"><span class="empty-icon">✨</span>No diffs yet — run <code>evalview check</code> to compare against a baseline</div>
     {% endif %}
   </div>
 
-  <!-- TIMELINE -->
+  <!-- ═══════════ TIMELINE ═══════════ -->
   <div id="p-timeline" class="panel {% if default_tab == 'timeline' %}on{% endif %}">
     {% if timeline %}
       <div class="card">
@@ -1204,31 +1350,31 @@ table tr:hover td{background:rgba(255,255,255,.02)}
     {% endif %}
   </div>
 
-  <!-- COMPARE -->
+  <!-- ═══════════ COMPARE ═══════════ -->
   {% if compare %}
   <div id="p-compare" class="panel">
-    <div class="card" style="margin-bottom:16px">
+    <div class="card" style="margin-bottom:14px">
       <div class="card-title">Pass Rate Across Runs</div>
       <div class="chart-wrap" style="height:240px"><canvas id="cmpPassRate"></canvas></div>
     </div>
-    <div class="card" style="margin-bottom:16px">
+    <div class="card" style="margin-bottom:14px">
       <div class="card-title">Avg Score Across Runs</div>
       <div class="chart-wrap" style="height:240px"><canvas id="cmpScore"></canvas></div>
     </div>
     <div class="card">
       <div class="card-title">Run Summary</div>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <table class="ev-table">
         <thead>
           <tr>
-            {% for lbl in compare.labels %}<th style="text-align:left;padding:10px 12px;color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border)">{{ lbl }}</th>{% endfor %}
+            {% for lbl in compare.labels %}<th>{{ lbl }}</th>{% endfor %}
           </tr>
         </thead>
         <tbody>
           <tr>
             {% for run in compare.runs %}
-            <td style="padding:12px;border-bottom:1px solid var(--border)">
-              <div style="font-size:22px;font-weight:800;color:{% if run.pass_rate >= 80 %}var(--green){% else %}var(--red){% endif %}">{{ run.pass_rate }}%</div>
-              <div style="font-size:11px;color:var(--muted);margin-top:2px">{{ run.passed }}/{{ run.total }} · avg {{ run.avg_score }}/100</div>
+            <td>
+              <div style="font-size:24px;font-weight:800;letter-spacing:-.03em;color:{% if run.pass_rate >= 80 %}var(--green){% else %}var(--red){% endif %}">{{ run.pass_rate }}%</div>
+              <div style="font-size:11px;color:var(--text-tertiary);margin-top:2px">{{ run.passed }}/{{ run.total }} · avg {{ run.avg_score }}/100</div>
             </td>
             {% endfor %}
           </tr>
@@ -1244,6 +1390,26 @@ table tr:hover td{background:rgba(255,255,255,.02)}
 mermaid.initialize({
   startOnLoad:true,theme:'dark',securityLevel:'loose',
   useMaxWidth:true,
+  themeVariables:{
+    darkMode:true,
+    background:'transparent',
+    primaryColor:'rgba(129,140,248,.15)',
+    primaryTextColor:'#e2e8f0',
+    primaryBorderColor:'rgba(129,140,248,.3)',
+    lineColor:'rgba(148,163,184,.3)',
+    secondaryColor:'rgba(52,211,153,.1)',
+    tertiaryColor:'rgba(192,132,252,.1)',
+    noteBkgColor:'rgba(129,140,248,.08)',
+    noteTextColor:'#94a3b8',
+    noteBorderColor:'rgba(129,140,248,.2)',
+    actorBkg:'rgba(129,140,248,.12)',
+    actorBorder:'rgba(129,140,248,.25)',
+    actorTextColor:'#e2e8f0',
+    signalColor:'#94a3b8',
+    signalTextColor:'#cbd5e1',
+    activationBkgColor:'rgba(129,140,248,.08)',
+    activationBorderColor:'rgba(129,140,248,.2)'
+  },
   sequence:{
     useMaxWidth:true,
     width:180,
@@ -1251,12 +1417,16 @@ mermaid.initialize({
     actorFontFamily:'Inter,sans-serif',
     noteFontFamily:'Inter,sans-serif',
     messageFontFamily:'Inter,sans-serif',
-    actorFontSize:13,
+    actorFontSize:12,
     messageFontSize:11,
-    noteFontSize:11,
-    boxTextMargin:6,
+    noteFontSize:10,
+    boxTextMargin:8,
     mirrorActors:false,
-    messageAlign:'center'
+    messageAlign:'center',
+    actorMargin:30,
+    bottomMarginAdj:4,
+    boxMargin:8,
+    noteMargin:8
   }
 });
 
@@ -1277,35 +1447,41 @@ function tog(id,head){
 (function(){
   const passed={{ kpis.passed }},failed={{ kpis.failed }};
   const scores={{ kpis.scores|tojson }},names={{ kpis.test_names|tojson }};
-  const tc='rgba(122,143,166,.8)',gc='rgba(255,255,255,.05)';
+  const tc='rgba(148,163,184,.7)',gc='rgba(255,255,255,.04)';
 
+  /* Compact donut */
   new Chart(document.getElementById('donut'),{
     type:'doughnut',
     data:{labels:['Passed','Failed'],datasets:[{
       data:[passed,failed],
-      backgroundColor:['rgba(34,211,165,.75)','rgba(255,107,138,.75)'],
-      borderColor:['rgba(34,211,165,.2)','rgba(255,107,138,.2)'],
-      borderWidth:1,hoverOffset:8
+      backgroundColor:['rgba(52,211,153,.7)','rgba(251,113,133,.7)'],
+      borderColor:['rgba(52,211,153,.15)','rgba(251,113,133,.15)'],
+      borderWidth:2,hoverOffset:6
     }]},
-    options:{responsive:true,maintainAspectRatio:false,cutout:'74%',
-      plugins:{legend:{labels:{color:tc,font:{size:12},padding:20,boxWidth:10,boxHeight:10}},
-      tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${ctx.raw}`}}}}
+    options:{responsive:true,maintainAspectRatio:false,cutout:'78%',
+      plugins:{legend:{position:'bottom',labels:{color:tc,font:{family:'Inter',size:11,weight:'500'},padding:16,boxWidth:8,boxHeight:8,usePointStyle:true,pointStyle:'circle'}},
+      tooltip:{backgroundColor:'rgba(10,14,26,.9)',borderColor:'rgba(255,255,255,.1)',borderWidth:1,titleFont:{family:'Inter',weight:'600'},bodyFont:{family:'Inter'},padding:10,cornerRadius:8,
+        callbacks:{label:ctx=>` ${ctx.label}: ${ctx.raw}`}}}}
   });
 
+  /* Horizontal bar chart sorted by score */
+  const sorted=names.map((n,i)=>({name:n,score:scores[i]})).sort((a,b)=>b.score-a.score);
   new Chart(document.getElementById('bars'),{
     type:'bar',
-    data:{labels:names,datasets:[{
-      label:'Score',data:scores,
-      backgroundColor:scores.map(s=>s>=80?'rgba(34,211,165,.65)':s>=60?'rgba(251,191,36,.65)':'rgba(255,107,138,.65)'),
-      borderColor:scores.map(s=>s>=80?'rgba(34,211,165,.9)':s>=60?'rgba(251,191,36,.9)':'rgba(255,107,138,.9)'),
-      borderWidth:1,borderRadius:8,borderSkipped:false
+    data:{labels:sorted.map(s=>s.name),datasets:[{
+      label:'Score',data:sorted.map(s=>s.score),
+      backgroundColor:sorted.map(s=>s.score>=80?'rgba(52,211,153,.5)':s.score>=60?'rgba(251,191,36,.5)':'rgba(251,113,133,.5)'),
+      borderColor:sorted.map(s=>s.score>=80?'rgba(52,211,153,.7)':s.score>=60?'rgba(251,191,36,.7)':'rgba(251,113,133,.7)'),
+      borderWidth:1,borderRadius:4,borderSkipped:false,
+      barPercentage:.7,categoryPercentage:.8
     }]},
-    options:{responsive:true,maintainAspectRatio:false,
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
       scales:{
-        y:{min:0,max:100,grid:{color:gc},ticks:{color:tc,callback:v=>v+''},border:{display:false}},
-        x:{grid:{display:false},ticks:{color:tc,font:{size:11}},border:{display:false}}
+        x:{min:0,max:100,grid:{color:gc},ticks:{color:tc,font:{family:'Inter',size:10},callback:v=>v},border:{display:false}},
+        y:{grid:{display:false},ticks:{color:'rgba(148,163,184,.9)',font:{family:'Inter',size:11,weight:'500'}},border:{display:false}}
       },
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` Score: ${ctx.raw}/100`}}}}
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(10,14,26,.9)',borderColor:'rgba(255,255,255,.1)',borderWidth:1,titleFont:{family:'Inter',weight:'600'},bodyFont:{family:'Inter'},padding:10,cornerRadius:8,
+        callbacks:{label:ctx=>` Score: ${ctx.raw}/100`}}}}
   });
 })();
 {% endif %}
@@ -1317,28 +1493,35 @@ function tog(id,head){
   const labels=tl.map(r=>r.label||(r.test+' \u203a '+r.tool));
   const vals=tl.map(r=>r.latency||0);
   const costs=tl.map(r=>r.cost||0);
-  const colors=tl.map(r=>r.success?'rgba(124,149,255,.65)':'rgba(255,107,138,.65)');
-  const borders=tl.map(r=>r.success?'rgba(124,149,255,.9)':'rgba(255,107,138,.9)');
   const maxLatency=Math.max(...vals, 0);
+  /* Color intensity by cost */
+  const maxCost=Math.max(...costs,0.000001);
+  const colors=tl.map((r,i)=>{
+    if(!r.success) return 'rgba(251,113,133,.6)';
+    const intensity=0.3+0.5*(costs[i]/maxCost);
+    return `rgba(129,140,248,${intensity.toFixed(2)})`;
+  });
+  const borders=tl.map(r=>r.success?'rgba(129,140,248,.7)':'rgba(251,113,133,.7)');
   new Chart(document.getElementById('tlChart'),{
     type:'bar',
-    data:{labels,datasets:[{label:'ms',data:vals,backgroundColor:colors,borderColor:borders,borderWidth:1,borderRadius:4,borderSkipped:false}]},
+    data:{labels,datasets:[{label:'ms',data:vals,backgroundColor:colors,borderColor:borders,borderWidth:1,borderRadius:4,borderSkipped:false,barPercentage:.7}]},
     options:{
       indexAxis:'y',responsive:true,maintainAspectRatio:false,
       scales:{
         x:{
           suggestedMax:maxLatency > 0 ? maxLatency * 1.15 : 1,
           grid:{color:'rgba(255,255,255,.04)'},
-          ticks:{color:'rgba(122,143,166,.8)',callback:v=>v+'ms'},
+          ticks:{color:'rgba(148,163,184,.7)',font:{family:'Inter',size:10},callback:v=>v+'ms'},
           border:{display:false}
         },
-        y:{grid:{display:false},ticks:{color:'rgba(122,143,166,.8)',font:{size:11}},border:{display:false}}
+        y:{grid:{display:false},ticks:{color:'rgba(148,163,184,.8)',font:{family:'Inter',size:11}},border:{display:false}}
       },
-      plugins:{legend:{display:false},tooltip:{callbacks:{
-        label:ctx=>` ${ctx.raw}ms`,
-        afterLabel:ctx=>` Cost: $${(costs[ctx.dataIndex] || 0).toFixed(6)}`,
-        title:ctx=>ctx[0].label
-      }}}
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(10,14,26,.9)',borderColor:'rgba(255,255,255,.1)',borderWidth:1,titleFont:{family:'Inter',weight:'600'},bodyFont:{family:'Inter'},padding:10,cornerRadius:8,
+        callbacks:{
+          label:ctx=>` ${ctx.raw}ms`,
+          afterLabel:ctx=>` Cost: $${(costs[ctx.dataIndex] || 0).toFixed(6)}`,
+          title:ctx=>ctx[0].label
+        }}}
     }
   });
 })();
@@ -1349,9 +1532,9 @@ function tog(id,head){
   const labels={{ compare.labels|tojson }};
   const passRates={{ compare.runs|map(attribute='pass_rate')|list|tojson }};
   const avgScores={{ compare.runs|map(attribute='avg_score')|list|tojson }};
-  const tc='rgba(122,143,166,.8)',gc='rgba(255,255,255,.05)';
-  const colors=['rgba(124,149,255,.7)','rgba(34,211,165,.7)','rgba(248,107,138,.7)','rgba(251,191,36,.7)','rgba(192,132,252,.7)'];
-  const borders=['rgba(124,149,255,.9)','rgba(34,211,165,.9)','rgba(248,107,138,.9)','rgba(251,191,36,.9)','rgba(192,132,252,.9)'];
+  const tc='rgba(148,163,184,.7)',gc='rgba(255,255,255,.04)';
+  const colors=['rgba(129,140,248,.6)','rgba(52,211,153,.6)','rgba(251,113,133,.6)','rgba(251,191,36,.6)','rgba(192,132,252,.6)'];
+  const borders=['rgba(129,140,248,.8)','rgba(52,211,153,.8)','rgba(251,113,133,.8)','rgba(251,191,36,.8)','rgba(192,132,252,.8)'];
   const opts={responsive:true,maintainAspectRatio:false,
     scales:{y:{grid:{color:gc},ticks:{color:tc},border:{display:false}},x:{grid:{display:false},ticks:{color:tc,font:{size:11}},border:{display:false}}},
     plugins:{legend:{display:false}}};
@@ -1372,30 +1555,31 @@ function tog(id,head){
 <!-- Share bar -->
 <div style="
   position:fixed;bottom:0;left:0;right:0;z-index:100;
-  background:rgba(20,22,28,.95);backdrop-filter:blur(12px);
-  border-top:1px solid rgba(255,255,255,.08);
+  background:rgba(10,14,26,.92);backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+  border-top:1px solid var(--border);
   padding:10px 24px;
   display:flex;align-items:center;justify-content:space-between;
-  font-family:var(--font);font-size:12px;color:var(--muted);
+  font-family:var(--font);font-size:12px;color:var(--text-tertiary);
 ">
   <span>
     Built with <a href="https://github.com/hidai25/eval-view" target="_blank" rel="noopener" style="color:var(--blue);text-decoration:none;font-weight:600">EvalView</a>
-    <span style="opacity:.4;margin:0 6px">|</span>
+    <span style="opacity:.3;margin:0 6px">|</span>
     Agent testing &amp; regression detection
   </span>
-  <span style="display:flex;align-items:center;gap:8px">
+  <span style="display:flex;align-items:center;gap:6px">
     <a href="https://twitter.com/intent/tweet?text=Testing%20my%20AI%20agent%20with%20EvalView%20%E2%80%94%20catches%20regressions%20before%20they%20ship.%20%F0%9F%9B%A1%EF%B8%8F&url=https%3A%2F%2Fgithub.com%2Fhidai25%2Feval-view"
        target="_blank" rel="noopener"
-       style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:6px;background:rgba(29,155,240,.12);color:#1d9bf0;text-decoration:none;font-weight:600;font-size:11px;transition:background .15s"
-       onmouseover="this.style.background='rgba(29,155,240,.25)'" onmouseout="this.style.background='rgba(29,155,240,.12)'">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+       style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:6px;background:rgba(29,155,240,.1);color:#1d9bf0;text-decoration:none;font-weight:600;font-size:11px;transition:all .15s;border:1px solid rgba(29,155,240,.15)"
+       onmouseover="this.style.background='rgba(29,155,240,.2)';this.style.borderColor='rgba(29,155,240,.3)'" onmouseout="this.style.background='rgba(29,155,240,.1)';this.style.borderColor='rgba(29,155,240,.15)'">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
       Share
     </a>
     <a href="https://github.com/hidai25/eval-view"
        target="_blank" rel="noopener"
-       style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:6px;background:rgba(255,255,255,.06);color:var(--text);text-decoration:none;font-weight:600;font-size:11px;transition:background .15s"
-       onmouseover="this.style.background='rgba(255,255,255,.12)'" onmouseout="this.style.background='rgba(255,255,255,.06)'">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>
+       style="display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:6px;background:var(--surface-2);color:var(--text-secondary);text-decoration:none;font-weight:600;font-size:11px;transition:all .15s;border:1px solid var(--border)"
+       onmouseover="this.style.background='var(--surface-3)';this.style.borderColor='var(--border-hover)'" onmouseout="this.style.background='var(--surface-2)';this.style.borderColor='var(--border)'">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>
       Star
     </a>
   </span>
