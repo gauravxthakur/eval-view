@@ -362,6 +362,7 @@ def generate_visual_report(
     compare_labels: Optional[List[str]] = None,
     golden_traces: Optional[Dict[str, Any]] = None,
     judge_usage: Optional[Dict[str, Any]] = None,
+    default_tab: Optional[str] = None,
 ) -> str:
     """Generate a self-contained visual HTML report.
 
@@ -535,6 +536,7 @@ def generate_visual_report(
         diff_rows=diff_rows,
         timeline=timeline,
         compare=compare_data,
+        default_tab=default_tab or "overview",
     )
 
     abs_path = os.path.abspath(output_path)
@@ -830,15 +832,15 @@ table tr:hover td{background:rgba(255,255,255,.02)}
 <main class="main">
 
   <div class="tabbar">
-    <button class="tab on" onclick="show('overview',this)">Overview</button>
-    <button class="tab" onclick="show('trace',this)">Execution Trace</button>
-    <button class="tab" onclick="show('diffs',this)">Diffs</button>
-    <button class="tab" onclick="show('timeline',this)">Timeline</button>
+    <button class="tab {% if default_tab == 'overview' %}on{% endif %}" onclick="show('overview',this)">Overview</button>
+    <button class="tab {% if default_tab == 'trace' %}on{% endif %}" onclick="show('trace',this)">Execution Trace</button>
+    <button class="tab {% if default_tab == 'diffs' %}on{% endif %}" onclick="show('diffs',this)">Diffs</button>
+    <button class="tab {% if default_tab == 'timeline' %}on{% endif %}" onclick="show('timeline',this)">Timeline</button>
     {% if compare %}<button class="tab" onclick="show('compare',this)">Compare Runs</button>{% endif %}
   </div>
 
   <!-- OVERVIEW -->
-  <div id="p-overview" class="panel on">
+  <div id="p-overview" class="panel {% if default_tab == 'overview' %}on{% endif %}">
     {% if kpis %}
     <div class="kpi-row">
       <div class="kpi {% if kpis.pass_rate >= 80 %}kpi-pass{% else %}kpi-fail{% endif %}">
@@ -983,7 +985,7 @@ table tr:hover td{background:rgba(255,255,255,.02)}
   </div>
 
   <!-- TRACE -->
-  <div id="p-trace" class="panel">
+  <div id="p-trace" class="panel {% if default_tab == 'trace' %}on{% endif %}">
     {% if traces %}
       {% for t in traces %}
       <div class="item">
@@ -1107,7 +1109,7 @@ table tr:hover td{background:rgba(255,255,255,.02)}
   </div>
 
   <!-- DIFFS -->
-  <div id="p-diffs" class="panel">
+  <div id="p-diffs" class="panel {% if default_tab == 'diffs' %}on{% endif %}">
     {% if diff_rows %}
       {% for d in diff_rows %}
       <div class="diff-item">
@@ -1189,7 +1191,7 @@ table tr:hover td{background:rgba(255,255,255,.02)}
   </div>
 
   <!-- TIMELINE -->
-  <div id="p-timeline" class="panel">
+  <div id="p-timeline" class="panel {% if default_tab == 'timeline' %}on{% endif %}">
     {% if timeline %}
       <div class="card">
         <div class="card-title">Step Latencies</div>

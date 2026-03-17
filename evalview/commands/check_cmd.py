@@ -102,7 +102,8 @@ def _should_auto_generate_report(
         return False
     if bool(__import__("os").environ.get("CI")):
         return False
-    return (not analysis.get("all_passed", False)) or bool(analysis.get("execution_failures", 0))
+    # Always generate — open report for both clean checks and failures
+    return True
 
 
 def _judge_usage_summary() -> Dict[str, Any]:
@@ -433,6 +434,8 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
     if effective_report_path and results:
         from evalview.visualization import generate_visual_report
         diff_list = [d for _, d in diffs]
+        # Open to Diffs tab when there are changes, Overview when clean
+        tab = "diffs" if diff_list else "overview"
         path = generate_visual_report(
             results=results,
             diffs=diff_list,
@@ -441,6 +444,7 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
             output_path=effective_report_path,
             auto_open=not json_output,
             title="EvalView Check Report",
+            default_tab=tab,
         )
         if not json_output:
             if auto_report:
