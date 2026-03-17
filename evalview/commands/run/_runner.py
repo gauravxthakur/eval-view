@@ -10,6 +10,7 @@ Both return ``(results, passed, failed, execution_errors)``.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from typing import Any, Callable, Dict, List, Tuple
 
@@ -150,7 +151,7 @@ async def run_parallel(
         status = "[bold red]● Running[/bold red]" if failed > 0 else "[green]● Running[/green]"
         judge_cost = judge_cost_tracker.get_summary()
 
-        judge_model = judge_cost_tracker.model or ""
+        judge_model = judge_cost_tracker.model or os.environ.get("EVAL_MODEL", "")
         judge_label = f"Judge ({judge_model}):" if judge_model else "Judge:"
         content = (
             f"  {status}\n\n"
@@ -245,7 +246,7 @@ def _print_completion_box(
     console: Any,
 ) -> None:
     """Print the ASCII completion box shown after parallel execution."""
-    judge_model = judge_cost_tracker.model or ""
+    judge_model = judge_cost_tracker.model or os.environ.get("EVAL_MODEL", "")
     final_judge_cost = judge_cost_tracker.get_summary()
     judge_label = f"Judge ({judge_model}):" if judge_model else "Judge cost:"
     console.print()

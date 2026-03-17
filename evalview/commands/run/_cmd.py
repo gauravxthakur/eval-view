@@ -356,7 +356,7 @@ async def _run_async(
         if not os.environ.get("EVAL_PROVIDER"):
             os.environ["EVAL_PROVIDER"] = selected_provider.value
         if selected_provider != LLMProvider.OLLAMA:
-            provider_cfg = PROVIDER_CONFIGS[selected_provider]
+            provider_cfg = _PROVIDER_CONFIGS[selected_provider]
             os.environ[provider_cfg.env_var] = selected_api_key
 
     # ── Mode announcements ────────────────────────────────────────────────────
