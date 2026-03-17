@@ -75,12 +75,6 @@ def main(ctx: click.Context) -> None:
       compare                 Compare two agent endpoints on the same suite
 
     \b
-    Golden Traces:
-      golden save <file>      Save a known-good baseline
-      golden list             List saved baselines
-      golden show <name>      View baseline details
-
-    \b
     Explore & Learn:
       chat                    Interactive AI assistant for eval guidance
       gym                     Practice agent eval patterns

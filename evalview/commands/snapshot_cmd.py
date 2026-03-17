@@ -169,8 +169,8 @@ def _group_tests_by_target(test_cases: List, config) -> Dict[tuple[str, str], li
     return groups
 
 
-@click.command("snapshot")
-@click.argument("test_path", default="tests", type=click.Path(exists=True))
+@click.group(invoke_without_command=True)
+@click.option("--path", "test_path", default="tests", type=click.Path(exists=True), help="Directory containing test cases (default: tests/).")
 @click.option("--notes", "-n", help="Notes about this snapshot")
 @click.option("--test", "-t", help="Snapshot only this specific test (by name)")
 @click.option("--variant", help="Save as a named variant for non-deterministic agents (max 5 per test)")
@@ -178,13 +178,19 @@ def _group_tests_by_target(test_cases: List, config) -> Dict[tuple[str, str], li
 @click.option("--reset", is_flag=True, help="Delete all existing baselines before capturing new ones.")
 @click.option("--judge", "judge_model", default=None, help="Judge model for scoring (e.g. gpt-4o-mini, sonnet, deepseek-chat).")
 @track_command("snapshot")
-def snapshot(test_path: str, notes: str, test: str, variant: str, approve_generated: bool, reset: bool, judge_model: Optional[str]):
+@click.pass_context
+def snapshot(ctx: click.Context, test_path: str, notes: str, test: str, variant: str, approve_generated: bool, reset: bool, judge_model: Optional[str]):
     """Run tests and snapshot passing results as baseline.
 
     This is the simple workflow: snapshot → check → fix → snapshot.
 
-    TEST_PATH is the directory containing test cases (default: tests/).
+    \b
+    Subcommands:
+      snapshot list              List all saved baselines
+      snapshot show <name>       View baseline details
+      snapshot delete <name>     Remove a baseline
 
+    \b
     Examples:
         evalview snapshot                         # Snapshot all passing tests
         evalview snapshot --test "my-test"        # Snapshot one test only
@@ -192,6 +198,8 @@ def snapshot(test_path: str, notes: str, test: str, variant: str, approve_genera
         evalview snapshot --variant variant1      # Save as alternate acceptable behavior
         evalview snapshot --reset                 # Clear old baselines and start fresh
     """
+    if ctx.invoked_subcommand is not None:
+        return
     from evalview.core.loader import TestCaseLoader
     from evalview.core.project_state import ProjectStateStore
     from evalview.core.celebrations import Celebrations
@@ -361,3 +369,95 @@ def snapshot(test_path: str, notes: str, test: str, variant: str, approve_genera
                 console.print(f"[dim]Report: {path}[/dim]\n")
             except Exception as e:
                 console.print(f"[dim]Could not generate report: {e}[/dim]\n")
+
+
+# ── Subcommands: list, show, delete ──────────────────────────────────────────
+
+
+@snapshot.command("list")
+@track_command("snapshot_list")
+def snapshot_list():
+    """List all saved baselines."""
+    from evalview.core.golden import GoldenStore
+
+    store = GoldenStore()
+    goldens = store.list_golden_with_variants()
+
+    if not goldens:
+        console.print("\n[yellow]No baselines found.[/yellow]")
+        console.print("[dim]Run: evalview snapshot[/dim]\n")
+        return
+
+    console.print("\n[bold]Saved Baselines[/bold]\n")
+
+    for item in sorted(goldens, key=lambda x: x["metadata"].test_name):
+        g = item["metadata"]
+        variant_count = item["variant_count"]
+        variant_label = f"  [dim]({variant_count} variants)[/dim]" if variant_count > 1 else ""
+        console.print(f"  [cyan]{g.test_name}[/cyan]{variant_label}")
+        console.print(f"    [dim]{g.score:.0f}/100  |  {g.blessed_at.strftime('%Y-%m-%d %H:%M')}[/dim]")
+
+    console.print(f"\n[dim]{len(goldens)} baseline(s)[/dim]\n")
+
+
+@snapshot.command("show")
+@click.argument("test_name")
+@track_command("snapshot_show")
+def snapshot_show(test_name: str):
+    """View details of a saved baseline."""
+    from evalview.core.golden import GoldenStore
+    from rich.panel import Panel
+
+    store = GoldenStore()
+    golden = store.load_golden(test_name)
+
+    if not golden:
+        console.print(f"\n[yellow]No baseline found for: {test_name}[/yellow]\n")
+        return
+
+    console.print(f"\n[bold]{test_name}[/bold]\n")
+    console.print(f"  Score:    {golden.metadata.score:.1f}")
+    console.print(f"  Captured: {golden.metadata.blessed_at.strftime('%Y-%m-%d %H:%M')}")
+    if golden.metadata.model_id:
+        provider = golden.metadata.model_provider or ""
+        model = f"{provider}/{golden.metadata.model_id}" if provider else golden.metadata.model_id
+        console.print(f"  Model:   {model}")
+    if golden.metadata.notes:
+        console.print(f"  Notes:   {golden.metadata.notes}")
+    console.print()
+
+    if golden.tool_sequence:
+        console.print("[bold]Tool Sequence:[/bold]")
+        for i, tool in enumerate(golden.tool_sequence, 1):
+            console.print(f"  {i}. {tool}")
+        console.print()
+
+    preview = golden.trace.final_output[:500]
+    if len(golden.trace.final_output) > 500:
+        preview += "..."
+    console.print("[bold]Output:[/bold]")
+    console.print(Panel(preview, border_style="dim"))
+    console.print()
+
+
+@snapshot.command("delete")
+@click.argument("test_name")
+@click.option("--force", "-f", is_flag=True, help="Skip confirmation")
+@track_command("snapshot_delete")
+def snapshot_delete(test_name: str, force: bool):
+    """Remove a saved baseline."""
+    from evalview.core.golden import GoldenStore
+
+    store = GoldenStore()
+
+    if not store.has_golden(test_name):
+        console.print(f"\n[yellow]No baseline found for: {test_name}[/yellow]\n")
+        return
+
+    if not force:
+        if not click.confirm(f"Delete baseline for '{test_name}'?", default=False):
+            console.print("[dim]Cancelled[/dim]")
+            return
+
+    store.delete_golden(test_name)
+    console.print(f"\n[green]Deleted: {test_name}[/green]\n")

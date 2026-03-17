@@ -83,7 +83,7 @@ thresholds:
     )
 
     runner = CliRunner()
-    result = runner.invoke(snapshot, ["tests"], input="n\n")
+    result = runner.invoke(snapshot, ["--path", "tests"], input="n\n")
 
     assert result.exit_code == 0
     assert "need approval" in result.output.lower()
@@ -119,7 +119,7 @@ thresholds:
     )
 
     runner = CliRunner()
-    result = runner.invoke(snapshot, ["tests"], input="n\n")
+    result = runner.invoke(snapshot, ["--path", "tests"], input="n\n")
 
     assert result.exit_code == 0
     assert "need approval" in result.output.lower()
@@ -156,7 +156,7 @@ thresholds:
         )
 
     runner = CliRunner()
-    result = runner.invoke(snapshot, ["tests"], input="n\n")
+    result = runner.invoke(snapshot, ["--path", "tests"], input="n\n")
 
     assert result.exit_code == 0
     assert "need approval" in result.output.lower()
@@ -244,7 +244,7 @@ thresholds:
     )
 
     runner = CliRunner()
-    result = runner.invoke(snapshot, ["tests"])
+    result = runner.invoke(snapshot, ["--path", "tests"])
 
     assert result.exit_code == 0, result.output
     assert "require approval" not in result.output.lower()
@@ -304,7 +304,7 @@ thresholds:
     )
 
     runner = CliRunner()
-    result = runner.invoke(snapshot, ["tests", "--approve-generated"])
+    result = runner.invoke(snapshot, ["--path", "tests", "--approve-generated"])
 
     assert result.exit_code == 0, result.output
     assert "Approved 1 generated test" in result.output
@@ -364,7 +364,7 @@ thresholds:
     )
 
     runner = CliRunner()
-    result = runner.invoke(snapshot, ["tests"])
+    result = runner.invoke(snapshot, ["--path", "tests"])
 
     assert result.exit_code == 0, result.output
     assert "Capturing a fresh baseline" in result.output
@@ -419,7 +419,7 @@ thresholds:
     )
 
     runner = CliRunner()
-    result = runner.invoke(snapshot, ["tests"])
+    result = runner.invoke(snapshot, ["--path", "tests"])
 
     assert result.exit_code == 0, result.output
     assert "Only 1 of 2 selected test(s) were snapshotted" in result.output
@@ -482,7 +482,7 @@ def test_snapshot_warns_about_mixed_endpoints_or_adapters(monkeypatch, tmp_path)
     )
 
     runner = CliRunner()
-    result = runner.invoke(snapshot, ["tests"])
+    result = runner.invoke(snapshot, ["--path", "tests"])
 
     assert result.exit_code == 0, result.output
     assert "mixes multiple endpoints or adapters" in result.output
