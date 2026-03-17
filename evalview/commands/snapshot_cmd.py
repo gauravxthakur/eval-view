@@ -272,9 +272,6 @@ def snapshot(test_path: str, notes: str, test: str, variant: str, approve_genera
         console.print(f"[green]✓ Approved {len(draft_generated)} generated test(s)[/green]\n")
         console.print("[dim]Approval marks the YAML as reviewed. The tests still need to pass before a baseline is saved.[/dim]\n")
 
-    # Run tests
-    console.print(f"[cyan]Running {len(test_cases)} test(s)...[/cyan]\n")
-
     # Load config
     config = _load_config_if_exists()
 
@@ -285,8 +282,13 @@ def snapshot(test_path: str, notes: str, test: str, variant: str, approve_genera
     endpoints, adapters = _summarize_mixed_targets(test_cases, config)
     target_groups = _group_tests_by_target(test_cases, config)
 
-    # Execute tests
-    results = _execute_snapshot_tests(test_cases, config)
+    # Execute tests with spinner
+    from evalview.commands.shared import run_with_spinner
+    results = run_with_spinner(
+        lambda: _execute_snapshot_tests(test_cases, config),
+        "Snapshotting",
+        len(test_cases),
+    )
     failed_count = len(test_cases) - len(results)
 
     # Save passing results as golden

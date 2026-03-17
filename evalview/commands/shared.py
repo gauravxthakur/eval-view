@@ -30,6 +30,52 @@ load_dotenv(dotenv_path=".env.local", override=True)
 console = Console()
 
 
+def run_with_spinner(fn: Any, label: str, n_tests: int) -> Any:
+    """Run a blocking function with a live spinner and elapsed timer.
+
+    Args:
+        fn: Zero-argument callable that returns the result.
+        label: Action label (e.g. "Running", "Checking").
+        n_tests: Number of tests for the status message.
+
+    Returns:
+        Whatever fn() returns.
+    """
+    import time as _time
+    import threading
+    from rich.live import Live
+
+    result_holder: List[Any] = []
+    start = _time.time()
+    done = threading.Event()
+
+    _frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    _idx = [0]
+
+    def _render() -> str:
+        elapsed = _time.time() - start
+        mins, secs = divmod(elapsed, 60)
+        ms = int((secs - int(secs)) * 1000)
+        ts = f"{int(mins):02d}:{int(secs):02d}.{ms:03d}"
+        frame = _frames[_idx[0] % len(_frames)]
+        _idx[0] += 1
+        return f"  [yellow]{frame}[/yellow] {label} {n_tests} test{'s' if n_tests != 1 else ''}...  [dim]{ts}[/dim]"
+
+    def _run() -> None:
+        result_holder.append(fn())
+        done.set()
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+    with Live(_render(), console=console, refresh_per_second=8, transient=True) as live:
+        while not done.wait(timeout=0.125):
+            live.update(_render())
+
+    thread.join()
+    return result_holder[0]
+
+
 def _create_adapter(adapter_type: str, endpoint: str, timeout: float = 30.0, allow_private_urls: bool = True) -> "AgentAdapter":
     """Factory function for creating adapters based on type."""
     return create_adapter(

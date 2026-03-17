@@ -178,53 +178,6 @@ def _print_baseline_context(goldens: List[Any], state: Any) -> None:
     console.print()
 
 
-def _execute_with_spinner(
-    test_cases: List[Any],
-    config: Any,
-    json_output: bool,
-    semantic_diff: bool,
-    timeout: float,
-) -> tuple:
-    """Run _execute_check_tests with a live spinner and elapsed timer."""
-    import time as time_module
-    import threading
-    from rich.live import Live
-
-    result_holder: List[Any] = []
-    start_time = time_module.time()
-    done = threading.Event()
-    n_tests = len(test_cases)
-
-    _spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    _spinner_idx = [0]
-
-    def _render() -> str:
-        elapsed = time_module.time() - start_time
-        mins, secs = divmod(elapsed, 60)
-        secs_int = int(secs)
-        ms = int((secs - secs_int) * 1000)
-        time_str = f"{int(mins):02d}:{secs_int:02d}.{ms:03d}"
-        frame = _spinner_frames[_spinner_idx[0] % len(_spinner_frames)]
-        _spinner_idx[0] += 1
-        return f"  [yellow]{frame}[/yellow] Running {n_tests} tests...  [dim]{time_str}[/dim]"
-
-    def _run() -> None:
-        result_holder.append(
-            _execute_check_tests(test_cases, config, json_output, semantic_diff, timeout)
-        )
-        done.set()
-
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
-
-    with Live(_render(), console=console, refresh_per_second=8, transient=True) as live:
-        while not done.wait(timeout=0.125):
-            live.update(_render())
-
-    thread.join()
-    return result_holder[0]
-
-
 @click.command("check")
 @click.argument("test_path", default="tests", type=click.Path(exists=True))
 @click.option("--test", "-t", help="Check only this specific test")
@@ -392,8 +345,11 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
 
     # Execute tests and compare against golden — show spinner while waiting
     if not json_output:
-        diffs, results, drift_tracker, golden_traces = _execute_with_spinner(
-            test_cases, config, json_output, semantic_diff, timeout
+        from evalview.commands.shared import run_with_spinner
+        diffs, results, drift_tracker, golden_traces = run_with_spinner(
+            lambda: _execute_check_tests(test_cases, config, json_output, semantic_diff, timeout),
+            "Checking",
+            len(test_cases),
         )
     else:
         diffs, results, drift_tracker, golden_traces = _execute_check_tests(
