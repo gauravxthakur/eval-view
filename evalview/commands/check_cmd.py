@@ -306,9 +306,9 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
     # Load config
     config = _load_config_if_exists()
 
-    # Apply judge config: --judge flag > env vars > config.yaml
+    # Apply judge config: --judge flag > interactive picker > config.yaml
     from evalview.commands.shared import apply_judge_model
-    apply_judge_model(judge_model)
+    apply_judge_model(judge_model, interactive=not json_output)
     from evalview.core.config import apply_judge_config
     apply_judge_config(config)
     from evalview.core.llm_provider import judge_cost_tracker

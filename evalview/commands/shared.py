@@ -30,23 +30,15 @@ load_dotenv(dotenv_path=".env.local", override=True)
 console = Console()
 
 
-def apply_judge_model(judge_model: Optional[str]) -> None:
-    """Resolve --judge flag: set EVAL_MODEL and EVAL_PROVIDER, validate API key.
-
-    Exits with a clear error if the required API key is missing.
-    """
-    if not judge_model:
-        return
-
+def _set_judge_env(resolved_model: str) -> None:
+    """Set EVAL_MODEL and EVAL_PROVIDER env vars, validate API key exists."""
     import os
     import sys
-    from evalview.core.llm_configs import resolve_model_alias, PROVIDER_CONFIGS, LLMProvider
+    from evalview.core.llm_configs import PROVIDER_CONFIGS, LLMProvider
 
-    resolved = resolve_model_alias(judge_model)
-    os.environ["EVAL_MODEL"] = resolved
+    os.environ["EVAL_MODEL"] = resolved_model
 
-    # Infer provider from model name and set EVAL_PROVIDER so the right client is used
-    model_lower = resolved.lower()
+    model_lower = resolved_model.lower()
     provider_map = {
         "claude": (LLMProvider.ANTHROPIC, "ANTHROPIC_API_KEY"),
         "gpt-": (LLMProvider.OPENAI, "OPENAI_API_KEY"),
@@ -66,12 +58,119 @@ def apply_judge_model(judge_model: Optional[str]) -> None:
                 config = PROVIDER_CONFIGS[provider]
                 console.print(
                     f"\n[red]Missing API key for {config.display_name}.[/red]\n"
-                    f"Model [bold]{resolved}[/bold] requires [bold]{env_var}[/bold] to be set.\n\n"
+                    f"Model [bold]{resolved_model}[/bold] requires [bold]{env_var}[/bold] to be set.\n\n"
                     f"[dim]Get your key at: {config.api_key_url}[/dim]\n"
                     f"[dim]Then: export {env_var}=your-key-here[/dim]\n"
                 )
                 sys.exit(1)
             break
+
+
+def _save_judge_to_config(model: str) -> None:
+    """Save the chosen judge model to .evalview/config.yaml so it persists."""
+    config_path = Path(".evalview/config.yaml")
+    data: Dict[str, Any] = {}
+    if config_path.exists():
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    if "judge" not in data:
+        data["judge"] = {}
+    data["judge"]["model"] = model
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
+def apply_judge_model(judge_model: Optional[str], interactive: bool = True) -> None:
+    """Resolve judge model: --judge flag > config > interactive picker.
+
+    On first use (no judge configured), shows an interactive model picker
+    and saves the choice to .evalview/config.yaml. Subsequent runs use
+    the saved config silently.
+
+    Args:
+        judge_model: Explicit --judge flag value (takes priority).
+        interactive: If True, prompt user when no judge is configured.
+    """
+    import os
+    from evalview.core.llm_configs import resolve_model_alias
+
+    # 1. Explicit --judge flag
+    if judge_model:
+        resolved = resolve_model_alias(judge_model)
+        _set_judge_env(resolved)
+        return
+
+    # 2. Already set via env var or config
+    if os.environ.get("EVAL_MODEL"):
+        return
+
+    # 3. Check config.yaml for saved judge preference
+    config_path = Path(".evalview/config.yaml")
+    if config_path.exists():
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        judge_cfg = data.get("judge", {})
+        if judge_cfg.get("model"):
+            resolved = resolve_model_alias(judge_cfg["model"])
+            _set_judge_env(resolved)
+            return
+
+    # 4. Interactive picker (first time only, not in CI)
+    if not interactive or os.environ.get("CI"):
+        return
+
+    import click as _click
+    from evalview.core.llm_configs import detect_available_providers
+    from evalview.core.pricing import format_pricing_line
+
+    try:
+        available = detect_available_providers()
+        available_set = {p.provider.value for p in available}
+    except Exception:
+        available_set = set()
+
+    if not available_set:
+        return  # No providers — will fall back to deterministic mode
+
+    choices: List[Tuple[str, str, str]] = []  # (model_id, label, pricing)
+    if "openai" in available_set:
+        choices.append(("gpt-5.4-mini", "GPT-5.4 Mini", format_pricing_line("gpt-5.4-mini") or ""))
+        choices.append(("gpt-5.4", "GPT-5.4", format_pricing_line("gpt-5.4") or ""))
+    if "anthropic" in available_set:
+        choices.append(("claude-haiku-4-5-20251001", "Claude Haiku 4.5", format_pricing_line("claude-haiku-4-5-20251001") or ""))
+        choices.append(("claude-sonnet-4-6", "Claude Sonnet 4.6", format_pricing_line("claude-sonnet-4-6") or ""))
+        choices.append(("claude-opus-4-6", "Claude Opus 4.6", format_pricing_line("claude-opus-4-6") or ""))
+    if "gemini" in available_set:
+        choices.append(("gemini-2.5-flash", "Gemini 2.5 Flash", format_pricing_line("gemini-2.5-flash") or ""))
+    if "deepseek" in available_set:
+        choices.append(("deepseek-chat", "DeepSeek Chat", format_pricing_line("deepseek-chat") or ""))
+    if "ollama" in available_set:
+        choices.append(("llama3.2", "Llama 3.2 (Ollama)", "free, local"))
+
+    if not choices:
+        return
+
+    console.print("[bold]Which model should judge your agent's output quality?[/bold]\n")
+    for i, (model_id, label, pricing) in enumerate(choices, 1):
+        rec = "  [dim]<- recommended[/dim]" if i == 1 else ""
+        pricing_str = f"  [dim]({pricing})[/dim]" if pricing else ""
+        console.print(f"  [cyan]{i}.[/cyan] {label}{pricing_str}{rec}")
+    console.print()
+
+    raw = _click.prompt("Choice", default="1", show_default=False).strip()
+    try:
+        idx = int(raw) - 1
+        if 0 <= idx < len(choices):
+            chosen = choices[idx][0]
+            _set_judge_env(chosen)
+            _save_judge_to_config(chosen)
+            console.print(f"[green]Using {choices[idx][1]} as judge.[/green]")
+            console.print("[dim]Saved to .evalview/config.yaml — change anytime with --judge[/dim]\n")
+            return
+    except ValueError:
+        pass
+
+    # Invalid input — fall through to auto-detect
+    console.print("[dim]Using default judge model.[/dim]\n")
 
 
 def run_with_spinner(fn: Any, label: str, n_tests: int) -> Any:
