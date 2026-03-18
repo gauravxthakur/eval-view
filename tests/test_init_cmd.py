@@ -36,7 +36,7 @@ def test_init_generate_path_uses_isolated_onboarding_folder(monkeypatch, tmp_pat
 
     fake_tests = _make_fake_tests(2)
 
-    def _fake_generate(endpoint, out_dir):
+    def _fake_generate(endpoint, out_dir, **kwargs):
         return (
             2,
             {
@@ -51,6 +51,11 @@ def test_init_generate_path_uses_isolated_onboarding_folder(monkeypatch, tmp_pat
 
     monkeypatch.setattr("evalview.commands.init_cmd._generate_init_draft_suite", _fake_generate)
     monkeypatch.setattr("evalview.commands.init_cmd._create_demo_agent", lambda base_path: None)
+
+    # Patch the httpx preflight check so it doesn't hit a real endpoint
+    class _FakeResponse:
+        status_code = 200
+    monkeypatch.setattr("httpx.post", lambda *a, **kw: _FakeResponse())
 
     runner = CliRunner()
     # input: "2" = choice 2 (generate), "y" = approve tests
@@ -89,9 +94,14 @@ model:
     monkeypatch.setattr("evalview.commands.init_cmd._detect_model", lambda: "claude-sonnet-4-6")
     monkeypatch.setattr(
         "evalview.commands.init_cmd._generate_init_draft_suite",
-        lambda endpoint, out_dir: (1, {"covered": {"tool_paths": 0, "direct_answers": 1, "multi_turn": 0}}, _make_fake_tests(1)),
+        lambda endpoint, out_dir, **kw: (1, {"covered": {"tool_paths": 0, "direct_answers": 1, "multi_turn": 0}}, _make_fake_tests(1)),
     )
     monkeypatch.setattr("evalview.commands.init_cmd._create_demo_agent", lambda base_path: None)
+
+    # Patch the httpx preflight check so it doesn't hit a real endpoint
+    class _FakeResponse:
+        status_code = 200
+    monkeypatch.setattr("httpx.post", lambda *a, **kw: _FakeResponse())
 
     runner = CliRunner()
     result = runner.invoke(init, ["--dir", str(tmp_path)], input="2\ny\n")
@@ -121,11 +131,16 @@ def test_init_regeneration_replaces_existing_onboarding_drafts(monkeypatch, tmp_
 
     fake_tests = _make_fake_tests(1)
 
-    def _fake_generate(endpoint, out_dir):
+    def _fake_generate(endpoint, out_dir, **kwargs):
         return (1, {"covered": {"tool_paths": 0, "direct_answers": 1, "multi_turn": 0}}, fake_tests)
 
     monkeypatch.setattr("evalview.commands.init_cmd._generate_init_draft_suite", _fake_generate)
     monkeypatch.setattr("evalview.commands.init_cmd._create_demo_agent", lambda base_path: None)
+
+    # Patch the httpx preflight check
+    class _FakeResponse:
+        status_code = 200
+    monkeypatch.setattr("httpx.post", lambda *a, **kw: _FakeResponse())
 
     runner = CliRunner()
     result = runner.invoke(init, ["--dir", str(tmp_path)], input="2\ny\n")
