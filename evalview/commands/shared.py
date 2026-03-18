@@ -391,6 +391,7 @@ def _load_config_if_exists() -> Optional["EvalViewConfig"]:
 def _execute_snapshot_tests(
     test_cases: List["TestCase"],
     config: Optional["EvalViewConfig"],
+    timeout: float = 30.0,
 ) -> List["EvaluationResult"]:
     """Execute tests and evaluate results for snapshot/benchmark commands."""
     from evalview.evaluators.evaluator import Evaluator
@@ -408,7 +409,7 @@ def _execute_snapshot_tests(
 
         allow_private = getattr(config, "allow_private_urls", True) if config else True
         try:
-            adapter = _create_adapter(adapter_type, endpoint, allow_private_urls=allow_private)
+            adapter = _create_adapter(adapter_type, endpoint, timeout=timeout, allow_private_urls=allow_private)
         except ValueError as e:
             console.print(f"[yellow]⚠ Skipping {tc.name}: {e}[/yellow]")
             return None
@@ -434,7 +435,6 @@ def _execute_snapshot_tests(
                 console.print(f"[red]✗ {tc.name}: Failed - {outcome}[/red]")
             # Actionable guidance per failure type
             if "timed out" in error_str.lower() or "timeout" in error_str.lower():
-                console.print(f"  [dim]Endpoint: {endpoint}[/dim]")
                 console.print(f"  [dim]Fix: increase timeout with --timeout 120, or check that your agent at {endpoint} is responsive[/dim]")
             elif "connection" in error_str.lower() or "refused" in error_str.lower():
                 console.print(f"  [dim]Fix: make sure your agent is running at {endpoint}[/dim]")

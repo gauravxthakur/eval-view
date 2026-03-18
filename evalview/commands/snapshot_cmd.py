@@ -186,9 +186,10 @@ def _group_tests_by_target(test_cases: List, config) -> Dict[tuple[str, str], li
 @click.option("--approve-generated", is_flag=True, help="Approve generated draft tests before snapshotting them.")
 @click.option("--reset", is_flag=True, help="Delete all existing baselines before capturing new ones.")
 @click.option("--judge", "judge_model", default=None, help="Judge model for scoring (e.g. gpt-4o-mini, sonnet, deepseek-chat).")
+@click.option("--timeout", default=30.0, type=float, help="Timeout in seconds per test (default: 30).")
 @track_command("snapshot")
 @click.pass_context
-def snapshot(ctx: click.Context, test_path: str, notes: str, test: str, variant: str, approve_generated: bool, reset: bool, judge_model: Optional[str]):
+def snapshot(ctx: click.Context, test_path: str, notes: str, test: str, variant: str, approve_generated: bool, reset: bool, judge_model: Optional[str], timeout: float):
     """Run tests and snapshot passing results as baseline.
 
     This is the simple workflow: snapshot → check → fix → snapshot.
@@ -305,7 +306,7 @@ def snapshot(ctx: click.Context, test_path: str, notes: str, test: str, variant:
     # Execute tests with spinner
     from evalview.commands.shared import run_with_spinner
     results = run_with_spinner(
-        lambda: _execute_snapshot_tests(test_cases, config),
+        lambda: _execute_snapshot_tests(test_cases, config, timeout=timeout),
         "Snapshotting",
         len(test_cases),
     )
