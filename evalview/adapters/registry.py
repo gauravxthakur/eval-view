@@ -249,6 +249,13 @@ class AdapterRegistry:
         except ImportError:
             logger.warning("OllamaAdapter not available")
 
+        try:
+            from evalview.adapters.openclaw_adapter import OpenClawAdapter
+
+            cls.register("openclaw", OpenClawAdapter)
+        except ImportError:
+            logger.warning("OpenClawAdapter not available")
+
         cls._initialized = True
 
     @classmethod
