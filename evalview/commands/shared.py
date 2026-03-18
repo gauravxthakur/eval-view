@@ -426,10 +426,18 @@ def _execute_snapshot_tests(
 
     for tc, outcome in zip(test_cases, outcomes):
         if isinstance(outcome, BaseException):
+            error_str = str(outcome)
+            endpoint = tc.endpoint or (config.endpoint if config else None) or ""
             if isinstance(outcome, (asyncio.TimeoutError, asyncio.CancelledError)):
                 console.print(f"[red]✗ {tc.name}: Async execution failed - {outcome}[/red]")
             else:
                 console.print(f"[red]✗ {tc.name}: Failed - {outcome}[/red]")
+            # Actionable guidance per failure type
+            if "timed out" in error_str.lower() or "timeout" in error_str.lower():
+                console.print(f"  [dim]Endpoint: {endpoint}[/dim]")
+                console.print(f"  [dim]Fix: increase timeout with --timeout 120, or check that your agent at {endpoint} is responsive[/dim]")
+            elif "connection" in error_str.lower() or "refused" in error_str.lower():
+                console.print(f"  [dim]Fix: make sure your agent is running at {endpoint}[/dim]")
             continue
         if outcome is None:
             continue
@@ -441,6 +449,19 @@ def _execute_snapshot_tests(
             console.print(f"[green]✓ {tc.name}:[/green] {result.score:.1f}/100")
         else:
             console.print(f"[red]✗ {tc.name}:[/red] {result.score:.1f}/100")
+            # Show why the test failed so users know what to fix
+            if result.min_score and result.score < result.min_score:
+                console.print(f"  [dim]Score {result.score:.1f} < {result.min_score:.1f} minimum[/dim]")
+            evals = result.evaluations
+            if evals.output_quality.score < 50:
+                console.print(f"  [dim]Output quality: {evals.output_quality.score:.0f}/100 — {evals.output_quality.rationale[:120]}[/dim]")
+            if evals.hallucination and evals.hallucination.has_hallucination:
+                console.print(f"  [dim]Hallucination detected ({evals.hallucination.confidence:.0%} confidence)[/dim]")
+            if evals.tool_accuracy.accuracy < 1.0:
+                if evals.tool_accuracy.missing:
+                    console.print(f"  [dim]Missing tools: {', '.join(evals.tool_accuracy.missing)}[/dim]")
+                if evals.tool_accuracy.unexpected:
+                    console.print(f"  [dim]Unexpected tools: {', '.join(evals.tool_accuracy.unexpected)}[/dim]")
 
     return results
 

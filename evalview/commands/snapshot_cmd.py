@@ -39,7 +39,16 @@ def _save_snapshot_results(
 
     if not passing:
         console.print("\n[yellow]No passing tests to snapshot.[/yellow]")
-        console.print("[dim]Fix failing tests first, then run evalview snapshot again.[/dim]\n")
+        # Categorize failures for targeted guidance
+        timed_out = [r for r in results if not r.passed and "timeout" in str(getattr(r, "actual_output", "") or "").lower()]
+        low_score = [r for r in results if not r.passed and r not in timed_out]
+        if timed_out:
+            console.print(f"[dim]  {len(timed_out)} test(s) timed out → try: evalview snapshot --timeout 120[/dim]")
+        if low_score:
+            console.print(f"[dim]  {len(low_score)} test(s) scored below threshold → run evalview run for detailed failure reasons[/dim]")
+        if not timed_out and not low_score:
+            console.print("[dim]  Run evalview run to see detailed failure reasons, then fix and retry.[/dim]")
+        console.print()
         return 0
 
     # Save passing results as golden

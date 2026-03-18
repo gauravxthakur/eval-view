@@ -523,6 +523,27 @@ def generate_visual_report(
                     "cost": turn_fallback_cost,
                 })
 
+        # Build failure reasons list for failed tests
+        failure_reasons = []
+        if not r.passed:
+            if r.min_score and r.score < r.min_score:
+                failure_reasons.append(f"Score {round(r.score, 1)} below minimum {round(r.min_score, 1)}")
+            evals = r.evaluations
+            if evals.output_quality.score < 50:
+                failure_reasons.append(f"Output quality: {round(evals.output_quality.score, 1)}/100")
+            if evals.hallucination and getattr(evals.hallucination, "has_hallucination", False):
+                conf = getattr(evals.hallucination, "confidence", None)
+                conf_str = f" ({round(conf * 100)}% confidence)" if conf else ""
+                failure_reasons.append(f"Hallucination detected{conf_str}")
+            if evals.safety and not getattr(evals.safety, "is_safe", True):
+                failure_reasons.append("Safety violation")
+            if evals.forbidden_tools and getattr(evals.forbidden_tools, "violations", []):
+                failure_reasons.append(f"Forbidden tools used: {', '.join(evals.forbidden_tools.violations)}")
+            if evals.tool_accuracy.accuracy < 0.5:
+                failure_reasons.append(f"Tool accuracy: {round(evals.tool_accuracy.accuracy * 100, 1)}%")
+
+        output_rationale = getattr(r.evaluations.output_quality, "rationale", "") or ""
+
         traces.append({
             "name": r.test_case,
             "diagram": _mermaid_trace(r) if has_steps else "",
@@ -544,6 +565,8 @@ def generate_visual_report(
             "safety": _extract_check_result(r, "safety"),
             "pii": _extract_check_result(r, "pii"),
             "forbidden_tools": _extract_check_result(r, "forbidden_tools"),
+            "failure_reasons": failure_reasons,
+            "output_rationale": output_rationale,
         })
     actual_results_dict = {r.test_case: r for r in results}
     diff_rows = _diff_rows(diffs or [], golden_traces, actual_results_dict)
@@ -826,7 +849,7 @@ table td,table th{transition:background .1s}
   <div class="tabbar">
     <button class="tab {% if default_tab == 'overview' %}on{% endif %}" onclick="show('overview',this)">Overview</button>
     <button class="tab {% if default_tab == 'trace' %}on{% endif %}" onclick="show('trace',this)">Execution Trace</button>
-    <button class="tab {% if default_tab == 'diffs' %}on{% endif %}" onclick="show('diffs',this)">Diffs</button>
+    {% if diff_rows %}<button class="tab {% if default_tab == 'diffs' %}on{% endif %}" onclick="show('diffs',this)">Diffs</button>{% endif %}
     <button class="tab {% if default_tab == 'timeline' %}on{% endif %}" onclick="show('timeline',this)">Timeline</button>
     {% if compare %}<button class="tab" onclick="show('compare',this)">Compare Runs</button>{% endif %}
   </div>
@@ -997,6 +1020,12 @@ table td,table th{transition:background .1s}
           <div style="background:rgba(37,99,235,.05);border:1px solid rgba(37,99,235,.12);border-radius:var(--r-xs);padding:9px 12px;margin-bottom:12px;font-size:13px;color:var(--text-2)">
             <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-4);margin-right:6px">Query</span>{{ t.query }}
           </div>{% endif %}
+          {% if t.failure_reasons %}
+          <div style="background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.18);border-radius:var(--r-xs);padding:10px 14px;margin-bottom:12px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--red-bright);margin-bottom:6px">Why it failed</div>
+            <ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text-2)">{% for reason in t.failure_reasons %}<li style="margin-bottom:3px">{{ reason }}</li>{% endfor %}</ul>
+            {% if t.output_rationale %}<div style="margin-top:8px;font-size:11px;color:var(--text-3);border-top:1px solid rgba(239,68,68,.12);padding-top:8px"><span style="font-weight:600;color:var(--text-2)">Judge rationale:</span> {{ t.output_rationale }}</div>{% endif %}
+          </div>{% endif %}
           {% if t.has_steps %}<div class="mermaid-box"><div class="mermaid">{{ t.diagram }}</div></div>
           {% else %}<div style="text-align:center;padding:18px 0;font-size:12px;color:var(--text-4)">◎ Direct response — no tools invoked</div>{% endif %}
           {% if t.turns %}
@@ -1027,8 +1056,9 @@ table td,table th{transition:background .1s}
   </div>
 
   <!-- ═══════════ DIFFS ═══════════ -->
+  {% if diff_rows %}
   <div id="p-diffs" class="panel {% if default_tab == 'diffs' %}on{% endif %}">
-    {% if diff_rows %}{% for d in diff_rows %}
+    {% for d in diff_rows %}
       <div class="diff-item">
         <div class="diff-head">
           {% if d.status == 'regression' %}<span class="badge b-red">⬇ Regression</span>{% elif d.status == 'tools_changed' %}<span class="badge b-yellow">⚠ Tools Changed</span>{% elif d.status == 'output_changed' %}<span class="badge b-purple">~ Output Changed</span>{% else %}<span class="badge b-green">✓ Passed</span>{% endif %}
@@ -1063,8 +1093,9 @@ table td,table th{transition:background .1s}
           <div class="traj-col"><div class="col-title">Current Trajectory</div><div class="mermaid-box" style="min-height:120px"><div class="mermaid">{{ d.actual_diagram or "sequenceDiagram\n    Note over Agent: No trace data" }}</div></div></div>
         </div>{% endif %}
       </div>
-    {% endfor %}{% else %}<div class="empty"><span class="empty-icon">✨</span>No diffs yet — run <code>evalview check</code> to compare against a baseline</div>{% endif %}
+    {% endfor %}
   </div>
+  {% endif %}
 
   <!-- ═══════════ TIMELINE ═══════════ -->
   <div id="p-timeline" class="panel {% if default_tab == 'timeline' %}on{% endif %}">

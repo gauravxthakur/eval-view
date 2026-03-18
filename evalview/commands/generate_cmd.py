@@ -134,6 +134,8 @@ def _print_generated_test_preview(output_dir: Path, max_files: int = 2) -> None:
 @click.option("--dry-run", is_flag=True, help="Preview generation without writing files.")
 @click.option("--no-synthesize", is_flag=True, help="Skip LLM-powered prompt synthesis (use heuristic prompts only).")
 @click.option("--synth-model", default=None, help="Override synthesis model (e.g. gpt-4o, claude-sonnet-4-5-20250929).")
+@click.option("--max-multi-turn", default=None, type=click.IntRange(0, 20), help="Max multi-turn follow-up tests. If omitted, you'll be asked interactively.")
+@click.option("--turns-per-multi", default=None, type=click.IntRange(2, 10), help="Number of turns per multi-turn test (default: 2).")
 @track_command("generate")
 def generate(
     agent_url: str | None,
@@ -152,6 +154,8 @@ def generate(
     dry_run: bool,
     no_synthesize: bool,
     synth_model: str | None,
+    max_multi_turn: int | None,
+    turns_per_multi: int | None,
 ) -> None:
     """Generate a draft regression suite from live agent probing.
 
@@ -205,30 +209,93 @@ def generate(
         # Build model choices from what's available
         _model_choices = []
         if "openai" in available_set:
-            _model_choices.append(("gpt-5-mini", "OpenAI GPT-5 Mini — fast & cheap"))
             _model_choices.append(("gpt-5.4", "OpenAI GPT-5.4 — best quality"))
+            _model_choices.append(("gpt-5-mini", "OpenAI GPT-5 Mini — fast & cheap"))
         if "anthropic" in available_set:
             _model_choices.append(("claude-haiku-4-5-20251001", "Claude Haiku — fast & cheap"))
-            _model_choices.append(("claude-sonnet-4-5-20250929", "Claude Sonnet — best quality"))
+            _model_choices.append(("claude-sonnet-4-6", "Claude Sonnet 4.6 — great quality"))
+            _model_choices.append(("claude-opus-4-6", "Claude Opus 4.6 — best quality"))
         if "gemini" in available_set:
             _model_choices.append(("gemini-2.0-flash", "Gemini Flash — free tier"))
+        if "grok" in available_set:
+            _model_choices.append(("grok-3-mini", "Grok Mini — fast"))
         if "deepseek" in available_set:
             _model_choices.append(("deepseek-chat", "DeepSeek — ultra cheap"))
+        if "ollama" in available_set:
+            _model_choices.append(("llama3.2", "Ollama Llama 3.2 — free, local"))
 
         if _model_choices:
             console.print("[bold]Which model for test synthesis?[/bold]\n")
             for i, (model, desc) in enumerate(_model_choices, 1):
                 rec = "  [dim]← recommended[/dim]" if i == 1 else ""
                 console.print(f"  [cyan]{i}.[/cyan] {desc}{rec}")
+            # Always show custom option
+            custom_idx = len(_model_choices) + 1
+            console.print(f"  [cyan]{custom_idx}.[/cyan] Custom model name [dim](any model your API key supports)[/dim]")
             console.print()
             model_choice = click.prompt("Choice", default="1", show_default=False).strip()
             try:
                 idx = int(model_choice) - 1
-                if 0 <= idx < len(_model_choices):
+                if idx == len(_model_choices):
+                    # Custom model — prompt for name
+                    synth_model = click.prompt("Model name (e.g. gpt-5.4, claude-sonnet, gemini-2.5-pro)").strip()
+                elif 0 <= idx < len(_model_choices):
                     synth_model = _model_choices[idx][0]
             except ValueError:
-                pass
+                # Treat non-numeric input as a direct model name
+                synth_model = model_choice
             console.print()
+
+    # Interactive multi-turn selection when not explicitly provided.
+    # Only show in interactive sessions where the model menu was also shown
+    # (i.e. providers are available). In test/CI contexts with no providers,
+    # skip to defaults to avoid breaking scripted input sequences.
+    _has_interactive_providers = bool(locals().get("_model_choices"))
+    if max_multi_turn is None and from_log is None and _has_interactive_providers:
+        console.print("[bold]How many multi-turn (follow-up) tests?[/bold]")
+        console.print("[dim]Multi-turn tests check that your agent handles conversations, not just single questions[/dim]\n")
+        console.print("  [cyan]1.[/cyan] None       [dim]— single-turn tests only[/dim]")
+        console.print("  [cyan]2.[/cyan] A few (1-2) [dim]← recommended for most agents[/dim]")
+        console.print("  [cyan]3.[/cyan] Several (3-5) [dim]— for chatty/support agents[/dim]")
+        console.print()
+        mt_choice = click.prompt("Choice", default="2", show_default=False).strip()
+        mt_map = {"1": 0, "2": max(1, budget // 4), "3": max(3, budget // 3)}
+        if mt_choice in mt_map:
+            max_multi_turn = mt_map[mt_choice]
+        else:
+            try:
+                max_multi_turn = max(0, min(20, int(mt_choice)))
+            except ValueError:
+                max_multi_turn = max(1, budget // 4)
+        console.print()
+
+        # Ask how many turns per multi-turn test (skip if --turns-per-multi was passed)
+        if max_multi_turn > 0 and turns_per_multi is None:
+            console.print("[bold]How many turns per multi-turn test?[/bold]")
+            console.print("[dim]Each turn is one user message + agent response in the same conversation[/dim]\n")
+            console.print("  [cyan]1.[/cyan] 2 turns  [dim]← recommended (question + follow-up)[/dim]")
+            console.print("  [cyan]2.[/cyan] 3 turns  [dim]— deeper conversations[/dim]")
+            console.print("  [cyan]3.[/cyan] 5 turns  [dim]— full support flows[/dim]")
+            console.print()
+            turns_choice = click.prompt("Choice", default="1", show_default=False).strip()
+            turns_map = {"1": 2, "2": 3, "3": 5}
+            if turns_choice in turns_map:
+                turns_per_multi = turns_map[turns_choice]
+            else:
+                try:
+                    turns_per_multi = max(2, min(10, int(turns_choice)))
+                except ValueError:
+                    turns_per_multi = 2
+            console.print()
+        elif max_multi_turn > 0 and turns_per_multi is not None:
+            pass  # already set via CLI flag
+        else:
+            turns_per_multi = 2
+    elif max_multi_turn is None:
+        max_multi_turn = max(1, budget // 4)
+        turns_per_multi = turns_per_multi or 2
+    else:
+        turns_per_multi = turns_per_multi or 2
 
     needs_live_agent = from_log is None
     endpoint = (
@@ -283,8 +350,12 @@ def generate(
         console.print(f"[dim]Include tools:[/dim] {', '.join(included)}")
     if excluded:
         console.print(f"[dim]Exclude tools:[/dim] {', '.join(excluded)}")
+    if max_multi_turn == 0:
+        console.print("[dim]Multi-turn:[/dim] disabled")
+    else:
+        console.print(f"[dim]Multi-turn:[/dim] up to {max_multi_turn} test(s), {turns_per_multi} turns each")
     if not allow_live_side_effects:
-        console.print("[dim]Side effects:[/dim] safe mode")
+        console.print("[dim]Side effects:[/dim] safe mode [dim](skips prompts that could trigger emails, deletes, purchases — use --allow-live-side-effects to include)[/dim]")
     console.print()
 
     # Shared state for the probe progress — uses a background thread to
@@ -377,6 +448,8 @@ def generate(
             synthesize=not no_synthesize,
             synth_model=synth_model,
             on_probe_complete=_on_probe,
+            max_multi_turn=max_multi_turn,
+            turns_per_multi=turns_per_multi,
         )
 
     _gen_state["stop"] = True
