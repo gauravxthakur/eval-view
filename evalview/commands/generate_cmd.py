@@ -486,14 +486,18 @@ def generate(
     # Explain why some probes didn't become tests
     skipped = result.probes_run - len(result.tests)
     if skipped > 0:
+        # Count probes (not signatures) that were direct answers
+        no_tools_probes = sum(
+            count for sig, count in result.signatures_seen.items()
+            if sig.startswith("direct_answer")
+        )
+        duplicate_probes = sum(max(0, count - 1) for count in result.signatures_seen.values())
         reasons = []
-        no_tools = sum(1 for sig, _ in result.signatures_seen.items() if sig.startswith("direct_answer"))
-        duplicates = sum(max(0, count - 1) for count in result.signatures_seen.values())
-        if no_tools:
-            reasons.append(f"{no_tools} had no tool usage")
-        if duplicates:
-            reasons.append(f"{duplicates} duplicate behavior(s)")
-        remaining = skipped - no_tools - duplicates
+        if no_tools_probes:
+            reasons.append(f"{no_tools_probes} had no tool usage")
+        if duplicate_probes:
+            reasons.append(f"{duplicate_probes} duplicate behavior(s)")
+        remaining = skipped - no_tools_probes - duplicate_probes
         if remaining > 0:
             reasons.append(f"{remaining} filtered for quality")
         reason_text = ", ".join(reasons) if reasons else "duplicates or no tool usage"

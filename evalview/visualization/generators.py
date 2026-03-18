@@ -544,6 +544,17 @@ def generate_visual_report(
 
         output_rationale = getattr(r.evaluations.output_quality, "rationale", "") or ""
 
+        # Score breakdown: show how the final score was calculated
+        evals = r.evaluations
+        tool_acc = round(evals.tool_accuracy.accuracy * 100, 1) if evals.tool_accuracy else None
+        output_qual = round(evals.output_quality.score, 1) if evals.output_quality else None
+        seq_obj = getattr(evals, "sequence_correctness", None)
+        seq_correct = getattr(seq_obj, "correct", None) if seq_obj else None
+        weights = getattr(r, "weights", None) or {}
+        w_tool = weights.get("tool_accuracy", 0.3)
+        w_output = weights.get("output_quality", 0.5)
+        w_seq = weights.get("sequence_correctness", 0.2)
+
         traces.append({
             "name": r.test_case,
             "diagram": _mermaid_trace(r) if has_steps else "",
@@ -555,6 +566,12 @@ def generate_visual_report(
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "score": round(r.score, 1),
+            "tool_accuracy": tool_acc,
+            "output_quality": output_qual,
+            "sequence_correct": seq_correct,
+            "w_tool": round(w_tool * 100),
+            "w_output": round(w_output * 100),
+            "w_seq": round(w_seq * 100),
             "model": ", ".join(models) if models else "Unknown",
             "baseline_created": baseline_created or "Unknown",
             "baseline_model": baseline_model,
@@ -1017,6 +1034,17 @@ table td,table th{transition:background .1s}
             {% if t.baseline_created and t.baseline_created != 'Unknown' %}<span class="badge b-purple">Baseline: {{ t.baseline_created }}</span>{% endif %}
             {% if t.baseline_model and t.baseline_model != 'Unknown' %}<span class="badge b-yellow">Baseline model: {{ t.baseline_model }}</span>{% endif %}
           </div>
+          {% if t.tool_accuracy is not none or t.output_quality is not none %}
+          <div style="background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:var(--r-xs);padding:10px 14px;margin-bottom:12px;font-size:12px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-4);margin-bottom:8px">Score Breakdown</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+              {% if t.tool_accuracy is not none %}<div><span style="color:var(--text-4)">Tools</span> <span style="font-weight:700;color:{% if t.tool_accuracy >= 80 %}var(--green-bright){% elif t.tool_accuracy >= 50 %}var(--yellow-bright){% else %}var(--red-bright){% endif %}">{{ t.tool_accuracy }}%</span> <span style="color:var(--text-4);font-size:10px">× {{ t.w_tool }}%</span></div>{% endif %}
+              {% if t.output_quality is not none %}<div><span style="color:var(--text-4)">Output</span> <span style="font-weight:700;color:{% if t.output_quality >= 80 %}var(--green-bright){% elif t.output_quality >= 50 %}var(--yellow-bright){% else %}var(--red-bright){% endif %}">{{ t.output_quality }}/100</span> <span style="color:var(--text-4);font-size:10px">× {{ t.w_output }}%</span></div>{% endif %}
+              {% if t.sequence_correct is not none %}<div><span style="color:var(--text-4)">Sequence</span> <span style="font-weight:700;color:{% if t.sequence_correct %}var(--green-bright){% else %}var(--red-bright){% endif %}">{% if t.sequence_correct %}Correct{% else %}Wrong{% endif %}</span> <span style="color:var(--text-4);font-size:10px">× {{ t.w_seq }}%</span></div>{% endif %}
+              <div style="border-left:1px solid var(--border);padding-left:16px"><span style="color:var(--text-4)">=</span> <span style="font-weight:800;font-size:14px;color:{% if t.score >= 80 %}var(--green-bright){% elif t.score >= 60 %}var(--yellow-bright){% else %}var(--red-bright){% endif %}">{{ t.score }}/100</span></div>
+            </div>
+            {% if t.output_rationale %}<div style="margin-top:8px;font-size:11px;color:var(--text-3);border-top:1px solid var(--border);padding-top:8px">{{ t.output_rationale }}</div>{% endif %}
+          </div>{% endif %}
           {% if t.query %}
           <div style="background:rgba(37,99,235,.05);border:1px solid rgba(37,99,235,.12);border-radius:var(--r-xs);padding:9px 12px;margin-bottom:12px;font-size:13px;color:var(--text-2)">
             <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-4);margin-right:6px">Query</span>{{ t.query }}
@@ -1025,7 +1053,6 @@ table td,table th{transition:background .1s}
           <div style="background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.18);border-radius:var(--r-xs);padding:10px 14px;margin-bottom:12px">
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--red-bright);margin-bottom:6px">Why it failed</div>
             <ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text-2)">{% for reason in t.failure_reasons %}<li style="margin-bottom:3px">{{ reason }}</li>{% endfor %}</ul>
-            {% if t.output_rationale %}<div style="margin-top:8px;font-size:11px;color:var(--text-3);border-top:1px solid rgba(239,68,68,.12);padding-top:8px"><span style="font-weight:600;color:var(--text-2)">Judge rationale:</span> {{ t.output_rationale }}</div>{% endif %}
           </div>{% endif %}
           {% if t.has_steps %}<div class="mermaid-box"><div class="mermaid">{{ t.diagram }}</div></div>
           {% else %}<div style="text-align:center;padding:18px 0;font-size:12px;color:var(--text-4)">◎ Direct response — no tools invoked</div>{% endif %}

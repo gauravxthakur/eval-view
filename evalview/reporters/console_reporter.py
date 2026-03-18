@@ -262,29 +262,32 @@ class ConsoleReporter:
 
         self.console.print(table)
 
-        # For passing tests with a notably low score, show which sub-score
-        # pulled it down so users understand what happened at a glance.
+        # Show score breakdown for tests that aren't a clean pass,
+        # so users understand exactly what pulled the score down.
         low_score_notes = []
         for result in results:
-            if result.passed and result.score < 75:
-                output_score = result.evaluations.output_quality.score if result.evaluations.output_quality else None
-                tool_accuracy = result.evaluations.tool_accuracy.accuracy if result.evaluations.tool_accuracy else None
-                if output_score is not None and output_score < 50:
+            if result.score < 80:
+                evals = result.evaluations
+                output_score = evals.output_quality.score if evals.output_quality else None
+                tool_accuracy = evals.tool_accuracy.accuracy if evals.tool_accuracy else None
+                seq_ok = getattr(evals.sequence_correctness, "correct", None) if evals.sequence_correctness else None
+                parts = []
+                if tool_accuracy is not None:
+                    color = "green" if tool_accuracy >= 0.8 else ("yellow" if tool_accuracy >= 0.5 else "red")
+                    parts.append(f"tools [{color}]{tool_accuracy*100:.0f}%[/{color}]")
+                if output_score is not None:
+                    color = "green" if output_score >= 80 else ("yellow" if output_score >= 50 else "red")
+                    parts.append(f"output [{color}]{output_score:.0f}/100[/{color}]")
+                if seq_ok is not None:
+                    parts.append(f"sequence [{'green' if seq_ok else 'red'}]{'✓' if seq_ok else '✗'}[/{'green' if seq_ok else 'red'}]")
+                if parts:
                     low_score_notes.append(
-                        f"[dim]  {result.test_case}: score {result.score:.0f} — "
-                        f"output quality {output_score:.0f}/100"
-                        + (" (tools were correct)" if tool_accuracy and tool_accuracy >= 0.8 else "")
-                        + "[/dim]"
-                    )
-                elif tool_accuracy is not None and tool_accuracy < 0.8:
-                    low_score_notes.append(
-                        f"[dim]  {result.test_case}: score {result.score:.0f} — "
-                        f"tool accuracy {tool_accuracy*100:.0f}/100[/dim]"
+                        f"  {result.test_case}: [bold]{result.score:.0f}[/bold] = {' · '.join(parts)}"
                     )
 
         if low_score_notes:
             self.console.print()
-            self.console.print("[dim]Low scores:[/dim]")
+            self.console.print("[dim]Score breakdown:[/dim]")
             for note in low_score_notes:
                 self.console.print(note)
 
