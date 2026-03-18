@@ -198,19 +198,77 @@ def _generate_init_draft_suite(endpoint: str, out_dir: Path) -> tuple[int, dict[
     Returns (count, report, tests) — tests are NOT written to disk yet so the
     caller can show them for review and ask for approval first.
     """
+    import threading
+    import time as _time
+
     adapter = create_adapter(
         adapter_type="http",
         endpoint=endpoint,
         timeout=120.0,
         allow_private_urls=True,
     )
+
+    budget = 8
+    _gen_start = _time.time()
+    _gen_state: dict = {"phase": f"Probing [1/{budget}]...", "completed": 0, "total": budget, "stop": False}
+
+    def _timer_thread() -> None:
+        while not _gen_state["stop"]:
+            elapsed = _time.time() - _gen_start
+            mins, secs = divmod(elapsed, 60)
+            ts = f"{int(mins):02d}:{int(secs):02d}"
+            n = _gen_state["completed"]
+            t = _gen_state["total"] or "?"
+            phase = _gen_state["phase"]
+            try:
+                console.file.write(f"\r\033[K  ⏱  {ts}  [{n}/{t}]  {phase}")
+                console.file.flush()
+            except Exception:
+                pass
+            _time.sleep(0.25)
+        try:
+            console.file.write("\r\033[K")
+            console.file.flush()
+        except Exception:
+            pass
+
+    def _on_probe(num: int, total: int, query: str, status: str, tools: list) -> None:
+        _gen_state["total"] = total
+        if status == "info":
+            _gen_state["phase"] = query
+            return
+        try:
+            console.file.write("\r\033[K")
+            console.file.flush()
+        except Exception:
+            pass
+        _gen_state["completed"] = num
+        if status == "fail":
+            console.print(f"[dim]  [red]✗[/red] [{num}/{total}] {query} [timeout][/dim]")
+        elif tools:
+            console.print(f"[dim]  [green]✓[/green] [{num}/{total}] {query} → {', '.join(tools[:3])}[/dim]")
+        else:
+            console.print(f"[dim]  [green]✓[/green] [{num}/{total}] {query}[/dim]")
+        if num < total:
+            _gen_state["phase"] = f"Probing [{num + 1}/{total}]..."
+        else:
+            _gen_state["phase"] = "Building tests..."
+
+    timer = threading.Thread(target=_timer_thread, daemon=True)
+    timer.start()
+
     result = run_generation(
         adapter=adapter,
         endpoint=endpoint,
         adapter_type="http",
-        budget=8,
+        budget=budget,
         allow_live_side_effects=False,
+        on_probe_complete=_on_probe,
     )
+
+    _gen_state["stop"] = True
+    if timer.is_alive():
+        timer.join(timeout=2)
     if not result.tests:
         return 0, result.report, []
 
@@ -788,7 +846,7 @@ model:
         )
     elif path_choice == 2:
         console.print("\n[cyan]Generating a draft suite from your agent...[/cyan]")
-        console.print(f"[dim]  Probing {endpoint} (this may take a minute for LLM-backed agents)...[/dim]")
+        console.print(f"[dim]Endpoint: {endpoint}[/dim]\n")
         n, report, tests = _generate_init_draft_suite(endpoint, init_generated_dir)
         if n > 0:
             covered = report.get("covered", {})
