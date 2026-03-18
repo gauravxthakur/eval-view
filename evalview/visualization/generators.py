@@ -324,10 +324,17 @@ def _diff_rows(
         if actual_results and test_name in actual_results:
             actual_diagram = _mermaid_trace(actual_results[test_name])
 
+        actual_score = None
+        if actual_results and test_name in actual_results:
+            actual_score = round(getattr(actual_results[test_name], "score", 0), 1)
+        baseline_score = round(actual_score - score_delta, 1) if actual_score is not None else None
+
         rows.append({
             "name": test_name,
             "status": status,
             "score_delta": round(score_delta, 1),
+            "actual_score": actual_score,
+            "baseline_score": baseline_score,
             "similarity": similarity,
             "semantic_similarity": semantic_similarity,
             "golden_tools": golden_tools,
@@ -713,46 +720,24 @@ body{font-family:var(--font);font-size:14px;line-height:1.6;color:var(--text);mi
 .panel{display:none}.panel.on{display:block}
 
 /* ══════════════════════════════════════════════
-   HERO ROW — gauge + stats, all above the fold
+   KPI STRIP — compact horizontal bar
    ══════════════════════════════════════════════ */
-.hero-row{
-  display:grid;grid-template-columns:auto 1fr;gap:0;
+.kpi-strip{
+  display:flex;align-items:center;gap:0;
   background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);
-  overflow:hidden;margin-bottom:20px;
+  overflow:hidden;margin-bottom:14px;padding:10px 0;flex-wrap:wrap;
 }
-@media(max-width:800px){.hero-row{grid-template-columns:1fr}}
-/* Gauge cell */
-.gauge-cell{
-  padding:24px 32px;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  position:relative;border-right:1px solid var(--border);
+.kpi-item{
+  display:flex;align-items:center;gap:8px;padding:4px 20px;
+  border-right:1px solid var(--border);white-space:nowrap;
 }
-.gauge-cell::before{
-  content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-  width:200px;height:200px;border-radius:50%;pointer-events:none;filter:blur(60px);opacity:.5;
-}
-.gauge-cell.glow-green::before{background:rgba(16,185,129,.12)}
-.gauge-cell.glow-red::before{background:rgba(239,68,68,.12)}
-.gauge-cell.glow-yellow::before{background:rgba(245,158,11,.1)}
-.gauge-wrap{position:relative;width:180px;height:180px}
-.gauge-wrap svg{display:block}
-.gauge-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.gauge-pct{font-size:32px;font-weight:900;letter-spacing:-.05em;line-height:1}
-.gauge-pct.green{color:var(--green-bright)}
-.gauge-pct.red{color:var(--red-bright)}
-.gauge-pct.yellow{color:var(--yellow-bright)}
-.gauge-label{font-size:9px;font-weight:700;color:var(--text-3);margin-top:3px;text-transform:uppercase;letter-spacing:.08em}
-.gauge-sub{font-size:12px;color:var(--text-3);margin-top:10px;font-weight:500;text-align:center}
-.gauge-sub b{color:var(--text);font-weight:700}
-.gauge-fill{transition:stroke-dasharray 1.2s cubic-bezier(.4,0,.2,1);stroke-dasharray:0 999}
-/* Stats grid — right side */
-.stats-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
-.stats-grid .ss{padding:16px 20px;border-bottom:1px solid var(--border)}
-.stats-grid .ss:nth-child(odd){border-right:1px solid var(--border)}
-.stats-grid .ss:nth-child(n+3){border-bottom:none}
-.ss-label{font-size:10px;font-weight:700;color:var(--text-4);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
-.ss-num{font-size:22px;font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--text)}
-.ss-num.blue{color:var(--blue-bright)}
-.ss-sub{font-size:11px;color:var(--text-4);margin-top:4px;font-weight:500;line-height:1.3}
+.kpi-item:last-child{border-right:none}
+.kpi-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.kpi-dot.green{background:var(--green);box-shadow:0 0 6px rgba(16,185,129,.4)}
+.kpi-dot.yellow{background:var(--yellow);box-shadow:0 0 6px rgba(245,158,11,.4)}
+.kpi-dot.red{background:var(--red);box-shadow:0 0 6px rgba(239,68,68,.4)}
+.kpi-val{font-size:13px;font-weight:700;color:var(--text)}
+.kpi-label{font-size:11px;color:var(--text-3);font-weight:500}
 
 /* ── Card ── */
 .card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);padding:20px 22px;margin-bottom:14px;position:relative;overflow:hidden}
@@ -769,8 +754,6 @@ body{font-family:var(--font);font-size:14px;line-height:1.6;color:var(--text);mi
 .meta-sub{font-size:11px;color:var(--text-4);margin-top:3px}
 
 /* ── Chart row ── */
-.chart-row{display:grid;grid-template-columns:1fr 200px;gap:12px;margin-bottom:14px}
-@media(max-width:800px){.chart-row{grid-template-columns:1fr}}
 
 /* ── Trace items ── */
 .item{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;overflow:hidden;transition:border-color .15s}
@@ -780,12 +763,13 @@ body{font-family:var(--font);font-size:14px;line-height:1.6;color:var(--text);mi
 .item-name{font-weight:700;font-size:14px;flex:1;letter-spacing:-.02em}
 .item-meta{display:flex;align-items:center;gap:5px;flex-shrink:0;flex-wrap:wrap}
 .mc{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.035);font-size:10px;font-weight:500;color:var(--text-3);white-space:nowrap}
-.chevron{color:var(--text-4);font-size:10px;transition:transform .2s;flex-shrink:0}
+.chevron{color:var(--text);font-size:18px;transition:transform .2s;flex-shrink:0;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid var(--border)}
+.item-head:hover .chevron{background:rgba(255,255,255,.08);border-color:var(--border-light)}
 details[open] .turn-chevron{transform:rotate(90deg)}
 .item-body{padding:18px;border-top:1px solid var(--border);background:rgba(0,0,0,.12)}
-.mermaid-box{background:rgba(0,0,0,.18);border:1px solid rgba(51,65,85,.35);border-radius:var(--r-sm);padding:24px 18px;overflow-x:auto;min-height:180px}
-.mermaid-box svg{min-width:640px;max-width:100%;height:auto;display:block;margin:0 auto}
-.mermaid-box .mermaid{min-width:640px}
+.mermaid-box{background:rgba(0,0,0,.18);border:1px solid rgba(51,65,85,.35);border-radius:var(--r-sm);padding:14px 14px;overflow-x:auto;min-height:120px}
+.mermaid-box svg{min-width:400px;max-width:100%;height:auto;display:block;margin:0 auto}
+.mermaid-box .mermaid{min-width:500px}
 .mermaid-box line.actor-line{stroke-dasharray:4 4;stroke:rgba(100,116,139,.15) !important}
 
 /* ── Chat turns ── */
@@ -876,72 +860,34 @@ table td,table th{transition:background .1s}
   <div id="p-overview" class="panel {% if default_tab == 'overview' %}on{% endif %}">
     {% if kpis %}
 
-    <!-- HERO: Gauge + Stats in one row -->
-    <div class="hero-row">
-      <div class="gauge-cell {% if kpis.pass_rate >= 80 %}glow-green{% elif kpis.pass_rate >= 60 %}glow-yellow{% else %}glow-red{% endif %}">
-        <div class="gauge-wrap">
-          <svg width="180" height="180" viewBox="0 0 180 180">
-            <circle cx="90" cy="90" r="76" fill="none" stroke="rgba(255,255,255,.04)" stroke-width="10"/>
-            <circle class="gauge-fill" cx="90" cy="90" r="76" fill="none"
-              stroke="{% if kpis.pass_rate >= 80 %}var(--green){% elif kpis.pass_rate >= 60 %}var(--yellow){% else %}var(--red){% endif %}"
-              stroke-width="10" stroke-linecap="round"
-              data-target="{{ (kpis.pass_rate / 100 * 478)|round(0) }}"
-              style="stroke-dasharray:0 478;filter:drop-shadow(0 0 6px {% if kpis.pass_rate >= 80 %}rgba(16,185,129,.35){% elif kpis.pass_rate >= 60 %}rgba(245,158,11,.35){% else %}rgba(239,68,68,.35){% endif %})"/>
-          </svg>
-          <div class="gauge-center">
-            <div class="gauge-pct {% if kpis.pass_rate >= 80 %}green{% elif kpis.pass_rate >= 60 %}yellow{% else %}red{% endif %}">{{ kpis.pass_rate }}%</div>
-            <div class="gauge-label">Pass Rate</div>
-          </div>
-        </div>
-        <div class="gauge-sub"><b>{{ kpis.passed }}</b> of <b>{{ kpis.total }}</b> tests</div>
+    <!-- KPI Strip -->
+    <div class="kpi-strip">
+      <div class="kpi-item">
+        <span class="kpi-dot {% if kpis.pass_rate >= 80 %}green{% elif kpis.pass_rate >= 60 %}yellow{% else %}red{% endif %}"></span>
+        <span class="kpi-val" style="color:{% if kpis.pass_rate >= 80 %}var(--green-bright){% elif kpis.pass_rate >= 60 %}var(--yellow-bright){% else %}var(--red-bright){% endif %}">{{ kpis.pass_rate }}% passed</span>
+        <span class="kpi-label">({{ kpis.passed }}/{{ kpis.total }})</span>
       </div>
-      <div class="stats-grid">
-        <div class="ss">
-          <div class="ss-label">Avg Score</div>
-          <div class="ss-num" style="color:{% if kpis.avg_score >= 80 %}var(--green-bright){% elif kpis.avg_score >= 60 %}var(--yellow-bright){% else %}var(--red-bright){% endif %}">{{ kpis.avg_score }}</div>
-          <div class="ss-sub">out of 100</div>
-        </div>
-        <div class="ss">
-          <div class="ss-label">Total Cost</div>
-          <div class="ss-num blue">${{ kpis.total_cost }}</div>
-          <div class="ss-sub">{% if kpis.total_tokens %}{{ '{:,}'.format(kpis.total_tokens) }} tokens (verified){% elif kpis.total_cost > 0 %}reported by adapter (no token data){% else %}this run{% endif %}</div>
-        </div>
-        <div class="ss">
-          <div class="ss-label">Avg Latency</div>
-          <div class="ss-num">{{ kpis.avg_latency_ms|int }}<span style="font-size:12px;color:var(--text-4);font-weight:500">ms</span></div>
-          <div class="ss-sub">per test</div>
-        </div>
-        <div class="ss">
-          <div class="ss-label">Model</div>
-          <div style="font-size:13px;font-weight:600;color:var(--text);margin-top:2px;line-height:1.3">{{ kpis.models_display }}</div>
-          {% if kpis.total_input_tokens or kpis.total_output_tokens %}
-          <div style="margin-top:4px;font-size:10px;color:var(--text-4);font-family:var(--mono)">in {{ '{:,}'.format(kpis.total_input_tokens) }} · out {{ '{:,}'.format(kpis.total_output_tokens) }}</div>
-          {% endif %}
-        </div>
+      <div class="kpi-item">
+        <span class="kpi-val" style="color:{% if kpis.avg_score >= 80 %}var(--green-bright){% elif kpis.avg_score >= 60 %}var(--yellow-bright){% else %}var(--red-bright){% endif %}">Avg {{ kpis.avg_score }}/100</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-val" style="color:var(--blue-bright)">${{ kpis.total_cost }}</span>
+        <span class="kpi-label">total</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-val">{{ kpis.avg_latency_ms|int }}ms</span>
+        <span class="kpi-label">avg</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-val">{{ kpis.models_display }}</span>
+        {% if kpis.total_tokens %}<span class="kpi-label">({{ '{:,}'.format(kpis.total_tokens) }} tokens)</span>{% endif %}
       </div>
     </div>
-
-    <!-- Meta cards -->
-    <div class="meta-row">
-      <div class="meta-card">
-        <div class="meta-label">Agent Model</div>
-        <div class="meta-value">{{ kpis.models_display }}</div>
-        <div class="meta-sub">{{ kpis.total }} test{% if kpis.total != 1 %}s{% endif %} in this run</div>
-      </div>
-      {% if kpis.total_tokens %}
-      <div class="meta-card">
-        <div class="meta-label">Token Usage</div>
-        <div class="meta-value">{{ '{:,}'.format(kpis.total_tokens) }} tokens</div>
-        <div class="meta-sub">in {{ '{:,}'.format(kpis.total_input_tokens) }} / out {{ '{:,}'.format(kpis.total_output_tokens) }}</div>
-      </div>
-      {% elif kpis.total_cost > 0 %}
-      <div class="meta-card">
-        <div class="meta-label">Token Usage</div>
-        <div class="meta-value" style="color:var(--yellow-bright)">Not available</div>
-        <div class="meta-sub">Your adapter reports cost but not token counts. Cost cannot be independently verified.</div>
-      </div>
-      {% endif %}
+    {% if not judge_usage or not judge_usage.call_count %}
+    <div style="font-size:11px;color:var(--text-4);padding:0 4px 6px;line-height:1.4">
+      No LLM judge was used — hallucination, safety, and PII checks were skipped. Run without <code style="background:rgba(255,255,255,.04);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:10px;border:1px solid var(--border)">--no-judge</code> to enable them.
     </div>
+    {% endif %}
     {% if baseline.latest_created_display != 'Unknown' %}
     <div class="meta-row">
       <div class="meta-card">
@@ -966,16 +912,10 @@ table td,table th{transition:background .1s}
     </div>
     {% endif %}
 
-    <!-- Score chart + donut -->
-    <div class="chart-row">
-      <div class="card">
-        <div class="card-title">Score per Test</div>
-        <div class="chart-wrap" style="height:{{ [kpis.scores|length * 40 + 24, 160]|max }}px"><canvas id="bars"></canvas></div>
-      </div>
-      <div class="card">
-        <div class="card-title">Distribution</div>
-        <div class="chart-wrap" style="height:180px"><canvas id="donut"></canvas></div>
-      </div>
+    <!-- Score chart (full width) -->
+    <div class="card">
+      <div class="card-title">Score per Test</div>
+      <div class="chart-wrap" style="height:{{ [kpis.scores|length * 40 + 24, 120]|max }}px"><canvas id="bars"></canvas></div>
     </div>
 
     <!-- Cost table -->
@@ -1026,7 +966,7 @@ table td,table th{transition:background .1s}
           </div>
           <span class="chevron">▾</span>
         </div>
-        <div id="tr{{ loop.index }}" class="item-body" {% if not loop.first %}style="display:none"{% endif %}>
+        <div id="tr{{ loop.index }}" class="item-body" {% if traces|length > 4 and not loop.first %}style="display:none"{% endif %}>
           <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px">
             <span class="badge b-blue">Model: {{ t.model }}</span>
             {% if t.input_tokens or t.output_tokens %}<span class="badge b-blue">in {{ '{:,}'.format(t.input_tokens) }} / out {{ '{:,}'.format(t.output_tokens) }} tokens</span>{% if t.cost != "$0" %}<span class="badge b-blue">{{ t.cost }}</span>{% endif %}{% endif %}
@@ -1097,21 +1037,24 @@ table td,table th{transition:background .1s}
   <div id="p-diffs" class="panel {% if default_tab == 'diffs' %}on{% endif %}">
     {% for d in diff_rows %}
       <div class="diff-item">
-        <div class="diff-head">
+        <div class="diff-head" style="cursor:pointer" onclick="tog('df{{ loop.index }}',this)">
           {% if d.status == 'regression' %}<span class="badge b-red">⬇ Regression</span>{% elif d.status == 'tools_changed' %}<span class="badge b-yellow">⚠ Tools Changed</span>{% elif d.status == 'output_changed' %}<span class="badge b-purple">~ Output Changed</span>{% else %}<span class="badge b-green">✓ Passed</span>{% endif %}
           <span class="diff-name">{{ d.name }}</span>
-          {% if d.score_delta != 0 %}<span class="badge {% if d.score_delta > 0 %}b-green{% else %}b-red{% endif %}">{% if d.score_delta > 0 %}+{% endif %}{{ d.score_delta }} pts</span>{% endif %}
-          <span class="sim">lexical <span class="sim-track"><span class="sim-fill {% if d.similarity >= 80 %}hi{% elif d.similarity >= 50 %}mid{% else %}lo{% endif %}" style="width:{{ d.similarity }}%"></span></span> <b style="color:{% if d.similarity >= 80 %}var(--green-bright){% elif d.similarity >= 50 %}var(--yellow-bright){% else %}var(--red-bright){% endif %}">{{ d.similarity }}%</b></span>
-          {% if d.semantic_similarity is not none %}<span class="sim">semantic <span class="sim-track"><span class="sim-fill {% if d.semantic_similarity >= 80 %}hi{% elif d.semantic_similarity >= 50 %}mid{% else %}lo{% endif %}" style="width:{{ d.semantic_similarity }}%"></span></span> <b style="color:{% if d.semantic_similarity >= 80 %}var(--green-bright){% elif d.semantic_similarity >= 50 %}var(--yellow-bright){% else %}var(--red-bright){% endif %}">{{ d.semantic_similarity }}%</b></span>{% endif %}
+          {% if d.actual_score is not none %}<span class="mc" title="Weighted score: tool accuracy (30%) + output quality (50%) + sequence correctness (20%). Baseline → Current." style="color:{% if d.actual_score >= 80 %}var(--green-bright){% elif d.actual_score >= 60 %}var(--yellow-bright){% else %}var(--red-bright){% endif %}">{{ d.baseline_score }} → {{ d.actual_score }}</span>{% endif %}
+          {% if d.score_delta != 0 %}<span class="badge {% if d.score_delta > 0 %}b-green{% else %}b-red{% endif %}" title="Score change from baseline snapshot">{% if d.score_delta > 0 %}+{% endif %}{{ d.score_delta }}</span>{% endif %}
+          <span class="sim" title="Exact word-for-word match between baseline and current output">lexical <span class="sim-track"><span class="sim-fill {% if d.similarity >= 80 %}hi{% elif d.similarity >= 50 %}mid{% else %}lo{% endif %}" style="width:{{ d.similarity }}%"></span></span> <b style="color:{% if d.similarity >= 80 %}var(--green-bright){% elif d.similarity >= 50 %}var(--yellow-bright){% else %}var(--red-bright){% endif %}">{{ d.similarity }}%</b></span>
+          {% if d.semantic_similarity is not none %}<span class="sim" title="Meaning similarity — high means same intent even if wording changed">semantic <span class="sim-track"><span class="sim-fill {% if d.semantic_similarity >= 80 %}hi{% elif d.semantic_similarity >= 50 %}mid{% else %}lo{% endif %}" style="width:{{ d.semantic_similarity }}%"></span></span> <b style="color:{% if d.semantic_similarity >= 80 %}var(--green-bright){% elif d.semantic_similarity >= 50 %}var(--yellow-bright){% else %}var(--red-bright){% endif %}">{{ d.semantic_similarity }}%</b></span>{% endif %}
+          <span class="chevron">▾</span>
         </div>
+        <div id="df{{ loop.index }}" {% if d.status == 'passed' %}style="display:none"{% endif %}>
         {% if d.golden_tools or d.actual_tools %}
         <div class="pipeline">
           <div class="pipeline-row"><span class="pipeline-label">Baseline</span>{% for t in d.golden_tools %}<span class="pipe-step {% if t not in d.actual_tools %}removed{% else %}match{% endif %}">{{ t }}</span>{% endfor %}{% if not d.golden_tools %}<span style="font-size:11px;color:var(--text-4);font-style:italic">No tools</span>{% endif %}</div>
           <div class="pipeline-row"><span class="pipeline-label">Current</span>{% for t in d.actual_tools %}<span class="pipe-step {% if t not in d.golden_tools %}added{% else %}match{% endif %}">{{ t }}</span>{% endfor %}{% if not d.actual_tools %}<span style="font-size:11px;color:var(--text-4);font-style:italic">No tools</span>{% endif %}</div>
         </div>{% endif %}
         <div class="diff-cols">
-          <div class="diff-col"><div class="col-title">Baseline</div><div class="tags">{% for t in d.golden_tools %}<span class="tag {% if t not in d.actual_tools %}rem{% endif %}">{{ t }}</span>{% endfor %}</div><div class="outbox">{{ d.golden_out }}</div></div>
-          <div class="diff-col"><div class="col-title">Current</div><div class="tags">{% for t in d.actual_tools %}<span class="tag {% if t not in d.golden_tools %}add{% endif %}">{{ t }}</span>{% endfor %}</div><div class="outbox">{{ d.actual_out }}</div>{% if d.diff_lines %}<div class="difflines">{% for line in d.diff_lines %}{% if line.startswith('+') %}<div class="a">{{ line }}</div>{% elif line.startswith('-') %}<div class="r">{{ line }}</div>{% else %}<div>{{ line }}</div>{% endif %}{% endfor %}</div>{% endif %}</div>
+          <div class="diff-col"><div class="col-title">Baseline Output</div><div class="outbox">{{ d.golden_out }}</div></div>
+          <div class="diff-col"><div class="col-title">Current Output</div><div class="outbox">{{ d.actual_out }}</div>{% if d.diff_lines %}<div class="difflines">{% for line in d.diff_lines %}{% if line.startswith('+') %}<div class="a">{{ line }}</div>{% elif line.startswith('-') %}<div class="r">{{ line }}</div>{% else %}<div>{{ line }}</div>{% endif %}{% endfor %}</div>{% endif %}</div>
         </div>
         {% if d.param_diffs %}
         <div style="padding:12px 18px;border-top:1px solid var(--border)">
@@ -1125,10 +1068,17 @@ table td,table th{transition:background .1s}
             </tr>{% endfor %}</tbody></table>
         </div>{% endif %}
         {% if d.golden_diagram or d.actual_diagram %}
-        <div class="traj-grid">
-          <div class="traj-col"><div class="col-title">Baseline Trajectory</div><div class="mermaid-box" style="min-height:120px"><div class="mermaid">{{ d.golden_diagram or "sequenceDiagram\n    Note over Agent: No trace data" }}</div></div></div>
-          <div class="traj-col"><div class="col-title">Current Trajectory</div><div class="mermaid-box" style="min-height:120px"><div class="mermaid">{{ d.actual_diagram or "sequenceDiagram\n    Note over Agent: No trace data" }}</div></div></div>
+        <div style="padding:10px 18px;border-top:1px solid var(--border)">
+          <div style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:4px 0" onclick="togTraj(this)">
+            <span class="chevron">▾</span>
+            <span style="font-size:12px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em">Trajectory Comparison</span>
+          </div>
+          <div class="traj-grid" style="display:none" data-golden="{{ d.golden_diagram or 'sequenceDiagram\n    Note over Agent: No trace data' }}" data-actual="{{ d.actual_diagram or 'sequenceDiagram\n    Note over Agent: No trace data' }}">
+            <div class="traj-col"><div class="col-title">Baseline</div><div class="mermaid-box" style="min-height:100px"><div class="mermaid-lazy"></div></div></div>
+            <div class="traj-col"><div class="col-title">Current</div><div class="mermaid-box" style="min-height:100px"><div class="mermaid-lazy"></div></div></div>
+          </div>
         </div>{% endif %}
+        </div>
       </div>
     {% endfor %}
   </div>
@@ -1136,7 +1086,36 @@ table td,table th{transition:background .1s}
 
   <!-- ═══════════ TIMELINE ═══════════ -->
   <div id="p-timeline" class="panel {% if default_tab == 'timeline' %}on{% endif %}">
-    {% if timeline %}<div class="card"><div class="card-title">Step Latencies</div><div style="position:relative;height:{{ [timeline|length * 38 + 50, 180]|max }}px"><canvas id="tlChart"></canvas></div></div>
+    {% if timeline %}
+    <!-- Timeline KPI strip -->
+    <div class="kpi-strip" style="margin-bottom:12px">
+      <div class="kpi-item">
+        <span class="kpi-val">{{ timeline|length }}</span>
+        <span class="kpi-label">steps</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-val" style="color:var(--blue-bright)">{{ kpis.avg_latency_ms|int }}ms</span>
+        <span class="kpi-label">avg latency</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-val" style="color:var(--blue-bright)">${{ kpis.total_cost }}</span>
+        <span class="kpi-label">total cost</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-val">{{ kpis.total }}</span>
+        <span class="kpi-label">tests</span>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-title">Step Latencies</div>
+        <div style="position:relative;height:{{ [timeline|length * 36 + 40, 160]|max }}px"><canvas id="tlChart"></canvas></div>
+      </div>
+      <div class="card" style="margin-bottom:0">
+        <div class="card-title">Step Cost</div>
+        <div style="position:relative;height:{{ [timeline|length * 36 + 40, 160]|max }}px"><canvas id="tlCostChart"></canvas></div>
+      </div>
+    </div>
     {% else %}<div class="empty"><span class="empty-icon">⏱</span>No step timing data</div>{% endif %}
   </div>
 
@@ -1158,22 +1137,17 @@ table td,table th{transition:background .1s}
 <script>
 mermaid.initialize({startOnLoad:true,theme:'dark',securityLevel:'loose',useMaxWidth:true,
   themeVariables:{darkMode:true,background:'transparent',primaryColor:'rgba(37,99,235,.1)',primaryTextColor:'#e2e8f0',primaryBorderColor:'rgba(37,99,235,.25)',lineColor:'rgba(100,116,139,.3)',secondaryColor:'rgba(16,185,129,.06)',tertiaryColor:'rgba(6,182,212,.06)',noteBkgColor:'rgba(37,99,235,.05)',noteTextColor:'#94a3b8',noteBorderColor:'rgba(37,99,235,.15)',actorBkg:'rgba(37,99,235,.08)',actorBorder:'rgba(37,99,235,.2)',actorTextColor:'#e2e8f0',signalColor:'#64748b',signalTextColor:'#cbd5e1'},
-  sequence:{useMaxWidth:true,width:180,wrap:false,actorFontFamily:'Inter,sans-serif',noteFontFamily:'Inter,sans-serif',messageFontFamily:'Inter,sans-serif',actorFontSize:12,messageFontSize:11,noteFontSize:10,boxTextMargin:12,mirrorActors:false,messageAlign:'center',actorMargin:50,bottomMarginAdj:4,diagramMarginX:20,diagramMarginY:16}
+  sequence:{useMaxWidth:true,width:180,wrap:false,actorFontFamily:'Inter,sans-serif',noteFontFamily:'Inter,sans-serif',messageFontFamily:'Inter,sans-serif',actorFontSize:15,messageFontSize:14,noteFontSize:13,boxTextMargin:12,mirrorActors:false,messageAlign:'center',actorMargin:50,bottomMarginAdj:4,diagramMarginX:20,diagramMarginY:16}
 });
 function show(id,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('on'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));document.getElementById('p-'+id).classList.add('on');btn.classList.add('on')}
 function tog(id,head){const el=document.getElementById(id);const o=el.style.display!=='none';el.style.display=o?'none':'block';head.querySelector('.chevron').style.transform=o?'':'rotate(180deg)'}
-
-/* Animate the gauge on load */
-requestAnimationFrame(()=>{setTimeout(()=>{document.querySelectorAll('.gauge-fill').forEach(c=>{const t=c.dataset.target||0;c.style.strokeDasharray=t+' 478'})},100)});
+function togTraj(trigger){const grid=trigger.nextElementSibling;const open=grid.style.display!=='none';grid.style.display=open?'none':'grid';trigger.querySelector('.chevron').style.transform=open?'':'rotate(180deg)';if(!open&&!grid.dataset.rendered){grid.dataset.rendered='1';const divs=grid.querySelectorAll('.mermaid-lazy');const src=[grid.dataset.golden,grid.dataset.actual];divs.forEach(function(d,i){if(src[i]){d.classList.add('mermaid');d.textContent=src[i];mermaid.init(undefined,d)}})}}
 
 {% if kpis %}
 (function(){
-  const passed={{ kpis.passed }},failed={{ kpis.failed }};
   const scores={{ kpis.scores|tojson }},names={{ kpis.test_names|tojson }};
   const tc='rgba(100,116,139,.6)',gc='rgba(255,255,255,.025)';
   const tt={backgroundColor:'rgba(6,11,24,.95)',borderColor:'rgba(51,65,85,.5)',borderWidth:1,titleFont:{family:'Inter',weight:'700',size:11},bodyFont:{family:'Inter',size:11},padding:8,cornerRadius:6};
-
-  new Chart(document.getElementById('donut'),{type:'doughnut',data:{labels:['Passed','Failed'],datasets:[{data:[passed,failed],backgroundColor:['rgba(16,185,129,.6)','rgba(239,68,68,.6)'],borderColor:['rgba(16,185,129,.08)','rgba(239,68,68,.08)'],borderWidth:2,hoverOffset:4}]},options:{responsive:true,maintainAspectRatio:false,cutout:'78%',plugins:{legend:{position:'bottom',labels:{color:tc,font:{family:'Inter',size:10,weight:'500'},padding:12,boxWidth:7,boxHeight:7,usePointStyle:true,pointStyle:'circle'}},tooltip:{...tt,callbacks:{label:ctx=>` ${ctx.label}: ${ctx.raw}`}}}}});
 
   const sorted=names.map((n,i)=>({name:n,score:scores[i]})).sort((a,b)=>b.score-a.score);
   /* Warning stripes for low scores */
@@ -1199,11 +1173,28 @@ requestAnimationFrame(()=>{setTimeout(()=>{document.querySelectorAll('.gauge-fil
 (function(){
   const tl={{ timeline|tojson }};if(!tl.length)return;
   const labels=tl.map(r=>r.label||(r.test+' \u203a '+r.tool));const vals=tl.map(r=>r.latency||0);const costs=tl.map(r=>r.cost||0);
-  const maxLat=Math.max(...vals,0),maxCost=Math.max(...costs,0.000001);
-  const colors=tl.map((r,i)=>r.success?`rgba(37,99,235,${(0.25+0.35*(costs[i]/maxCost)).toFixed(2)})`:'rgba(239,68,68,.45)');
-  const borders=tl.map(r=>r.success?'rgba(37,99,235,.5)':'rgba(239,68,68,.5)');
+  const maxLat=Math.max(...vals,0);
   const tt={backgroundColor:'rgba(6,11,24,.95)',borderColor:'rgba(51,65,85,.5)',borderWidth:1,titleFont:{family:'Inter',weight:'700'},bodyFont:{family:'Inter'},padding:8,cornerRadius:6};
-  new Chart(document.getElementById('tlChart'),{type:'bar',data:{labels,datasets:[{label:'ms',data:vals,backgroundColor:colors,borderColor:borders,borderWidth:1,borderRadius:3,borderSkipped:false,barPercentage:.55}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,scales:{x:{suggestedMax:maxLat>0?maxLat*1.15:1,grid:{color:'rgba(255,255,255,.025)'},ticks:{color:'rgba(100,116,139,.5)',font:{family:'Inter',size:9},callback:v=>v+'ms'},border:{display:false}},y:{grid:{display:false},ticks:{color:'rgba(203,213,225,.5)',font:{family:'Inter',size:10}},border:{display:false}}},plugins:{legend:{display:false},tooltip:{...tt,callbacks:{label:ctx=>` ${ctx.raw}ms`,afterLabel:ctx=>` Cost: $${(costs[ctx.dataIndex]||0).toFixed(6)}`,title:ctx=>ctx[0].label}}}}});
+  /* Color palette per test — distinct hues */
+  const palette=[
+    {bg:'rgba(37,99,235,.4)',border:'rgba(37,99,235,.65)'},
+    {bg:'rgba(16,185,129,.4)',border:'rgba(16,185,129,.65)'},
+    {bg:'rgba(245,158,11,.4)',border:'rgba(245,158,11,.65)'},
+    {bg:'rgba(168,85,247,.4)',border:'rgba(168,85,247,.65)'},
+    {bg:'rgba(6,182,212,.4)',border:'rgba(6,182,212,.65)'},
+    {bg:'rgba(239,68,68,.4)',border:'rgba(239,68,68,.65)'},
+    {bg:'rgba(236,72,153,.4)',border:'rgba(236,72,153,.65)'},
+    {bg:'rgba(132,204,22,.4)',border:'rgba(132,204,22,.65)'},
+  ];
+  const tests=[...new Set(tl.map(r=>r.test))];
+  const testIdx=Object.fromEntries(tests.map((t,i)=>[t,i%palette.length]));
+  const colors=tl.map(r=>r.success?palette[testIdx[r.test]].bg:'rgba(239,68,68,.45)');
+  const borders=tl.map(r=>r.success?palette[testIdx[r.test]].border:'rgba(239,68,68,.65)');
+  const chartOpts={indexAxis:'y',responsive:true,maintainAspectRatio:false,scales:{x:{suggestedMax:maxLat>0?maxLat*1.15:1,grid:{color:'rgba(255,255,255,.025)'},ticks:{color:'rgba(100,116,139,.5)',font:{family:'Inter',size:9},callback:v=>v+'ms'},border:{display:false}},y:{grid:{display:false},ticks:{color:'rgba(203,213,225,.6)',font:{family:'Inter',size:10,weight:'500'}},border:{display:false}}},plugins:{legend:{display:false},tooltip:{...tt,callbacks:{label:ctx=>` ${ctx.raw}ms`,afterLabel:ctx=>` Cost: $${(costs[ctx.dataIndex]||0).toFixed(6)}`,title:ctx=>ctx[0].label}}}};
+  new Chart(document.getElementById('tlChart'),{type:'bar',data:{labels,datasets:[{label:'ms',data:vals,backgroundColor:colors,borderColor:borders,borderWidth:1,borderRadius:3,borderSkipped:false,barPercentage:.6}]},options:chartOpts});
+  /* Cost chart */
+  const maxCost=Math.max(...costs,0.000001);
+  new Chart(document.getElementById('tlCostChart'),{type:'bar',data:{labels,datasets:[{label:'$',data:costs,backgroundColor:colors,borderColor:borders,borderWidth:1,borderRadius:3,borderSkipped:false,barPercentage:.6}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,scales:{x:{suggestedMax:maxCost>0?maxCost*1.15:0.001,grid:{color:'rgba(255,255,255,.025)'},ticks:{color:'rgba(100,116,139,.5)',font:{family:'Inter',size:9},callback:v=>'$'+v.toFixed(4)},border:{display:false}},y:{grid:{display:false},ticks:{color:'rgba(203,213,225,.6)',font:{family:'Inter',size:10,weight:'500'}},border:{display:false}}},plugins:{legend:{display:false},tooltip:{...tt,callbacks:{label:ctx=>` $${ctx.raw.toFixed(6)}`,title:ctx=>ctx[0].label}}}}});
 })();
 {% endif %}
 
