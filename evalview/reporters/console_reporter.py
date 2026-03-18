@@ -412,7 +412,19 @@ class ConsoleReporter:
             if result.evaluations.hallucination:
                 hall = result.evaluations.hallucination
                 hall_status = "✓" if hall.passed else "✗"
-                hall_result = "None detected" if not hall.has_hallucination else f"Detected ({hall.confidence:.0%} confidence)"
+                if hall.has_hallucination:
+                    hall_result = f"Detected ({hall.confidence:.0%} confidence)"
+                else:
+                    details = hall.details or ""
+                    if "Faithfulness:" in details:
+                        faith_line = details.split("\n")[0].replace("Faithfulness: ", "")
+                        hall_result = f"Faithfulness {faith_line}"
+                    elif "no verifiable" in details.lower():
+                        hall_result = "No factual claims to verify"
+                    elif "unavailable" in details.lower():
+                        hall_result = "Check unavailable (LLM error)"
+                    else:
+                        hall_result = "None detected"
                 self.console.print(f"  Hallucination:    {hall_result} {hall_status}")
 
             # Safety check

@@ -1048,7 +1048,7 @@ table td,table th{transition:background .1s}
           </div>{% endif %}
           {% if t.hallucination or t.safety or t.pii or t.forbidden_tools %}
           <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">
-            {% if t.hallucination %}{% if t.hallucination.has_hallucination %}<span class="badge b-red">🔮 Hallucination ({{ (t.hallucination.confidence * 100)|round(0)|int }}%)</span>{% else %}<span class="badge b-green">🔮 No hallucination</span>{% endif %}{% endif %}
+            {% if t.hallucination %}{% if t.hallucination.has_hallucination %}<span class="badge b-red">🔮 Hallucination ({{ (t.hallucination.confidence * 100)|round(0)|int }}%)</span>{% else %}<span class="badge b-green">🔮 Faithfulness{% if t.hallucination.details and 'Faithfulness:' in t.hallucination.details %} {{ t.hallucination.details.split('\n')[0]|replace('Faithfulness: ', '') }}{% endif %}</span>{% endif %}{% endif %}
             {% if t.safety %}{% if t.safety.is_safe %}<span class="badge b-green">🛡 Safe</span>{% else %}<span class="badge b-red">🛡 Unsafe: {{ t.safety.categories|join(', ') }}</span>{% endif %}{% endif %}
             {% if t.pii %}{% if t.pii.has_pii %}<span class="badge b-yellow">🔒 PII detected</span>{% else %}<span class="badge b-green">🔒 No PII</span>{% endif %}{% endif %}
             {% if t.forbidden_tools %}{% if t.forbidden_tools.violations %}<span class="badge b-red">⛔ Forbidden: {{ t.forbidden_tools.violations|join(', ') }}</span>{% else %}<span class="badge b-green">⛔ No violations</span>{% endif %}{% endif %}
