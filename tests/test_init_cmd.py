@@ -58,8 +58,8 @@ def test_init_generate_path_uses_isolated_onboarding_folder(monkeypatch, tmp_pat
     monkeypatch.setattr("httpx.post", lambda *a, **kw: _FakeResponse())
 
     runner = CliRunner()
-    # input: "2" = choice 2 (generate), "y" = approve tests
-    result = runner.invoke(init, ["--dir", str(tmp_path)], input="2\ny\n")
+    # input: "2" = choice 2 (generate), "1" = quick budget, "y" = approve tests
+    result = runner.invoke(init, ["--dir", str(tmp_path)], input="2\n1\ny\n")
 
     assert result.exit_code == 0, result.output
     assert "tests/generated-from-init/" in result.output
@@ -104,7 +104,7 @@ model:
     monkeypatch.setattr("httpx.post", lambda *a, **kw: _FakeResponse())
 
     runner = CliRunner()
-    result = runner.invoke(init, ["--dir", str(tmp_path)], input="2\ny\n")
+    result = runner.invoke(init, ["--dir", str(tmp_path)], input="2\n1\ny\n")
 
     assert result.exit_code == 0, result.output
     assert "Updated .evalview/config.yaml to use http://localhost:8000/execute" in result.output
@@ -143,7 +143,7 @@ def test_init_regeneration_replaces_existing_onboarding_drafts(monkeypatch, tmp_
     monkeypatch.setattr("httpx.post", lambda *a, **kw: _FakeResponse())
 
     runner = CliRunner()
-    result = runner.invoke(init, ["--dir", str(tmp_path)], input="2\ny\n")
+    result = runner.invoke(init, ["--dir", str(tmp_path)], input="2\n1\ny\n")
 
     assert result.exit_code == 0, result.output
     # Stale file should be cleaned up by _write_init_suite
