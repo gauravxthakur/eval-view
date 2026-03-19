@@ -153,6 +153,14 @@ Both modes start the same way: `evalview demo` → `evalview init` → then pick
 
 The first two layers alone catch most regressions — fully offline, zero cost. The LLM judge supports GPT-5.4, Claude Opus/Sonnet, Gemini, DeepSeek, Grok, and Ollama (free local). EvalView asks which model to use on first run, or use `--judge sonnet`.
 
+Every test shows a score breakdown so you know exactly what pulled the score down:
+
+```
+Score Breakdown
+  Tools 100% ×30%    Output 42/100 ×50%    Sequence ✓ ×20%    = 54/100
+  ↑ tools were fine   ↑ this is the problem
+```
+
 ## Multi-Turn Testing
 
 ```yaml
@@ -173,12 +181,15 @@ thresholds:
   min_score: 70
 ```
 
-Each turn is evaluated independently. EvalView checks per-turn tool usage, forbidden tools, and output content — then tells you exactly which turn broke:
+Each turn is evaluated independently — tool usage, forbidden tools, output content, and **LLM judge scoring per turn** (not just the final response). The judge sees conversation history for context but scores each turn against its own query:
 
 ```
-Turn 1: ✅ tools: search_flights ✓, output: contains "Paris" ✓
-Turn 2: ❌ forbidden tool "delete_booking" used
+Turn 1 (92/100) ✓: Correctly processed refund, grounded in tool results
+Turn 2 (90/100) ✓: Clear timeline, consistent with turn 1
+Turn 3 (85/100) ✓: Appropriate escalation advice
 ```
+
+No more false low scores from judging turn 3's answer against turn 1's question.
 
 Capture multi-turn conversations from real traffic:
 
@@ -198,7 +209,8 @@ evalview capture --agent http://localhost:8000/invoke --multi-turn
 | **Semantic similarity** | Embedding-based output comparison | [Docs](docs/EVALUATION_METRICS.md) |
 | **Production monitoring** | `evalview monitor` with Slack alerts and JSONL history | [Docs](#production-monitoring) |
 | **A/B comparison** | `evalview compare --v1 <url> --v2 <url>` | [Docs](docs/CLI_REFERENCE.md) |
-| **Test generation** | `evalview generate` — auto-create test suites | [Docs](docs/TEST_GENERATION.md) |
+| **Test generation** | `evalview generate` — discovers your agent's domain, generates relevant tests | [Docs](docs/TEST_GENERATION.md) |
+| **Per-turn judge scoring** | Multi-turn output quality scored per turn with conversation context | [Docs](#multi-turn-testing) |
 | **Silent model detection** | Alerts when LLM provider updates the model version | [Docs](docs/GOLDEN_TRACES.md) |
 | **Gradual drift detection** | Trend analysis across check history | [Docs](docs/GOLDEN_TRACES.md) |
 | **Statistical mode (pass@k)** | Run N times, require a pass rate | [Docs](docs/STATISTICAL_MODE.md) |
