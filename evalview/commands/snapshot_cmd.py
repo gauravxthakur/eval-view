@@ -272,8 +272,8 @@ def snapshot(ctx: click.Context, test_path: str, notes: str, test: str, variant:
         for test_case in draft_generated[:8]:
             source = Path(getattr(test_case, "source_file", test_case.name)).name
             query = getattr(getattr(test_case, "input", None), "query", "") or ""
-            preview = query[:60] + ("..." if len(query) > 60 else "")
-            console.print(f"  • {test_case.name} [dim]({source}: {preview})[/dim]")
+            query_preview = query[:60] + ("..." if len(query) > 60 else "")
+            console.print(f"  • {test_case.name} [dim]({source}: {query_preview})[/dim]")
         if len(draft_generated) > 8:
             console.print(f"  [dim]... and {len(draft_generated) - 8} more[/dim]")
         console.print()
@@ -325,14 +325,14 @@ def snapshot(ctx: click.Context, test_path: str, notes: str, test: str, variant:
                 console.print(f"  [dim]-- {result.test_case}: would skip (not passing)[/dim]")
                 continue
 
-            existing = preview_store.load_golden(result.test_case)
-            if existing:
-                baseline_tools_str = " → ".join(existing.tool_sequence) if existing.tool_sequence else "(none)"
+            golden = preview_store.load_golden(result.test_case)
+            if golden:
+                baseline_tools_str = " → ".join(golden.tool_sequence) if golden.tool_sequence else "(none)"
                 current_tools_str = " → ".join(
                     str(getattr(s, "tool_name", None) or getattr(s, "step_name", "?"))
                     for s in (result.trace.steps or [])
                 ) or "(none)"
-                score_change = result.score - existing.metadata.score
+                score_change = result.score - golden.metadata.score
                 sign = "+" if score_change > 0 else ""
                 score_color = "green" if score_change >= 0 else "red"
 
@@ -340,7 +340,7 @@ def snapshot(ctx: click.Context, test_path: str, notes: str, test: str, variant:
                 console.print(f"    Baseline: [{baseline_tools_str}]")
                 console.print(f"    New:      [{current_tools_str}]")
                 console.print(
-                    f"    Score:    {existing.metadata.score:.0f} → {result.score:.0f} "
+                    f"    Score:    {golden.metadata.score:.0f} → {result.score:.0f} "
                     f"[{score_color}]({sign}{score_change:.0f})[/{score_color}]"
                 )
                 console.print()

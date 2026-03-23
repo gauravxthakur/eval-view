@@ -547,8 +547,8 @@ class MCPServer:
             env = {**os.environ, "NO_COLOR": "1", "FORCE_COLOR": "0"}
             try:
                 proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=30)
-                output = proc.stdout + (proc.stderr or "")
-                return _ANSI_ESCAPE.sub("", output).strip() or f"Error: {e}"
+                fallback_output = proc.stdout + (proc.stderr or "")
+                return _ANSI_ESCAPE.sub("", fallback_output).strip() or f"Error: {e}"
             except Exception:
                 return f"Error running check: {e}"
 
