@@ -128,7 +128,7 @@ def test_check_does_not_report_clean_when_execution_failures_occur(monkeypatch, 
     )
     monkeypatch.setattr(
         "evalview.commands.check_cmd._execute_check_tests",
-        lambda test_cases, config, json_output, semantic_diff, timeout: ([], [sample_result], None, {}),
+        lambda test_cases, config, json_output, semantic_diff=False, timeout=30.0, skip_llm_judge=False: ([], [sample_result], None, {}),
     )
 
     # Provide input for interactive judge picker + skip it via env var
@@ -165,7 +165,7 @@ def test_check_uses_active_test_path_when_no_path_is_given(monkeypatch, tmp_path
         lambda self: [GoldenMetadata(test_name="sample", blessed_at="2026-03-13T00:00:00Z", score=95.0)],
     )
 
-    def _fake_execute(test_cases, config, json_output, semantic_diff, timeout):
+    def _fake_execute(test_cases, config, json_output, semantic_diff=False, timeout=30.0, skip_llm_judge=False):
         captured["names"] = [tc.name for tc in test_cases]
         return [], [], None, {}
 
@@ -251,7 +251,7 @@ def test_check_auto_generates_html_report_on_failures(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         "evalview.commands.check_cmd._execute_check_tests",
-        lambda test_cases, config, json_output, semantic_diff, timeout: ([("sample", _Diff())], [sample_result], None, {}),
+        lambda test_cases, config, json_output, semantic_diff=False, timeout=30.0, skip_llm_judge=False: ([("sample", _Diff())], [sample_result], None, {}),
     )
     monkeypatch.setattr(
         "evalview.commands.check_cmd._display_check_results",
