@@ -1016,9 +1016,9 @@ table td,table th{transition:background .1s}
       {% endif %}
       {% if judge_usage and judge_usage.call_count %}
       <div class="meta-card">
-        <div class="meta-label">Judge{% if judge_usage.model %} ({{ judge_usage.model }}){% endif %}</div>
+        <div class="meta-label">EvalView Judge{% if judge_usage.model %} ({{ judge_usage.model }}){% endif %}</div>
         <div class="meta-value">{% if judge_usage.total_cost > 0 %}${{ judge_usage.total_cost }}{% elif judge_usage.is_free %}FREE{% else %}$0{% endif %}</div>
-        <div class="meta-sub">{{ '{:,}'.format(judge_usage.total_tokens) }} tokens / {{ judge_usage.call_count }} call{% if judge_usage.call_count != 1 %}s{% endif %}</div>
+        <div class="meta-sub">{{ '{:,}'.format(judge_usage.total_tokens) }} tokens across {{ judge_usage.call_count }} judge call{% if judge_usage.call_count != 1 %}s{% endif %}</div>
       </div>
       <div class="meta-card">
         <div class="meta-label">Token Breakdown</div>

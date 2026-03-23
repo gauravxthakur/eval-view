@@ -335,8 +335,8 @@ def _display_check_results(
                 output_changed=output_changed_count,
                 regressions=regression_count,
                 execution_failures=exec_failures,
-                current_streak=state.current_streak,
-                longest_streak=state.longest_streak,
+                current_streak=int(state.current_streak or 0),
+                longest_streak=int(state.longest_streak or 0),
                 health_pct=health_pct,
             )
             console.print(scorecard)
