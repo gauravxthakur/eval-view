@@ -196,6 +196,20 @@ class AdapterRegistry:
             logger.warning("CrewAIAdapter not available")
 
         try:
+            from evalview.adapters.crewai_native_adapter import CrewAINativeAdapter
+
+            cls.register("crewai-native", CrewAINativeAdapter)
+        except ImportError:
+            pass  # Optional — requires crewai SDK
+
+        try:
+            from evalview.adapters.pydantic_ai_adapter import PydanticAIAdapter
+
+            cls.register("pydantic-ai", PydanticAIAdapter)
+        except ImportError:
+            pass  # Optional — requires pydantic-ai SDK
+
+        try:
             from evalview.adapters.openai_assistants_adapter import OpenAIAssistantsAdapter
 
             cls.register("openai-assistants", OpenAIAssistantsAdapter)
