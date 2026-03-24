@@ -516,6 +516,10 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
         if not json_output:
             console.print(f"[green]◈ CSV exported:[/green] {csv_file_path}\n")
 
+    # Auto-update badge if it exists
+    from evalview.commands.badge_cmd import update_badge_after_check
+    update_badge_after_check(diffs, len(diffs))
+
     # Compute and exit with code
     exit_code = _compute_check_exit_code(diffs, fail_on, strict, execution_failures=execution_failures)
     sys.exit(exit_code)

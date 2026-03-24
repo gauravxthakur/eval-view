@@ -46,6 +46,7 @@ from evalview.commands.baseline_cmd import baseline
 from evalview.commands.feedback_cmd import feedback
 from evalview.commands.openclaw_cmd import openclaw
 from evalview.commands.watch_cmd import watch
+from evalview.commands.badge_cmd import badge
 
 
 @click.group(context_settings={"allow_interspersed_args": False})
@@ -99,6 +100,7 @@ def main(ctx: click.Context) -> None:
     \b
     CI/CD:
       ci comment              Post results to a GitHub PR
+      badge                   Generate shields.io status badge
       init --ci               Generate GitHub Actions workflow
 
     \b
@@ -175,6 +177,7 @@ main.add_command(monitor)
 main.add_command(feedback)
 main.add_command(openclaw)
 main.add_command(watch)
+main.add_command(badge)
 
 
 if __name__ == "__main__":

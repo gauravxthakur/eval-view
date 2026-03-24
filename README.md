@@ -42,6 +42,12 @@ Normal tests catch crashes. Tracing shows what happened after the fact. EvalView
 pip install evalview
 ```
 
+Or one-line install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hidai25/eval-view/main/install.sh | bash
+```
+
 **Already have a local agent running?**
 
 ```bash
@@ -314,7 +320,22 @@ When something breaks:
 - ⚠️ **create-flow**: 1 tool change(s)
 ```
 
-Also works with pre-push hooks — zero CI config:
+**Status badge** — shows live check status in your README:
+
+```bash
+evalview badge            # Generate .evalview/badge.json
+git add .evalview/badge.json && git commit -m "add evalview badge"
+```
+
+Then add to your README (replace `USER/REPO`):
+
+```markdown
+![EvalView](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/USER/REPO/main/.evalview/badge.json&style=flat)
+```
+
+The badge auto-updates every time `evalview check` runs. Commit the JSON and the GitHub Action keeps it fresh.
+
+**Pre-push hooks** — zero CI config:
 
 ```bash
 evalview install-hooks    # Pre-push regression blocking
