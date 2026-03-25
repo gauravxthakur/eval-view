@@ -98,6 +98,8 @@ Use LangSmith for observability. Use Braintrust for scoring. **Use EvalView for 
 | **Primary focus** | Observability | Scoring | Prompt comparison | **Regression detection** |
 | Tool call + parameter diffing | — | — | — | **Yes** |
 | Golden baseline regression | — | Manual | — | **Automatic** |
+| Silent model change detection | — | — | — | **Yes** |
+| Auto-heal (retry + variant proposal) | — | — | — | **Yes** |
 | PR comments with alerts | — | — | — | **Cost, latency, model change** |
 | Works without API keys | No | No | Partial | **Yes** |
 | Production monitoring | Tracing | — | — | **Check loop + Slack** |
