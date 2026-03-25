@@ -21,6 +21,8 @@
 
 Your agent returns `200` but silently takes the wrong tool path, skips a clarification, or degrades output quality after a model update. Normal tests don't catch this. **EvalView does.**
 
+**Catches silent model updates.** When your LLM provider ships a new version, EvalView detects the drift and shows exactly what changed.
+
 ```
   ✓ login-flow           PASSED
   ⚠ refund-request       TOOLS_CHANGED
