@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-03-25
+
+### Added
+- **`evalview watch`** — file watcher that re-runs regression checks on every save with live scorecard dashboard, debounce, directory exclusions, and `--quick` mode ($0, sub-second)
+- **`evalview badge`** — generate shields.io-compatible status badge JSON; auto-updates on every `evalview check`
+- **`evalview monitor --dashboard`** — live-updating Rich terminal dashboard with per-test status, history dots, cycle count, uptime, cost tracking, and Slack alert count
+- **Native Pydantic AI adapter** (`pydantic-ai`) — runs `agent.run()` in-process, extracts tool calls from typed `ModelResponse`/`ToolCallPart` messages, captures usage from `result.usage()`
+- **Native CrewAI adapter** (`crewai-native`) — runs `crew.kickoff()` in-process, captures tool calls via event bus (`ToolUsageFinishedEvent`) with exact args, output, agent role, and timing
+- **Assertion wizard** — `evalview capture` now analyzes captured traffic and suggests smart assertions (tool sequence, required tools, latency, quality score) automatically
+- **Auto-variant discovery** — `evalview check --statistical N --auto-variant` runs tests N times, clusters execution paths, and saves distinct valid paths as golden variants
+- **Budget circuit breaker** — `evalview check --budget 0.50` enforces spend limits mid-execution with per-test cost breakdown; remaining tests skipped when limit hit
+- **Smart eval profiles** — `evalview init` auto-detects agent type (chat, tool-use, multi-step, RAG, coding) and pre-configures evaluators, thresholds, and assertions
+- **Python API** — `gate()`, `gate_async()`, `gate_or_revert()` for programmatic regression checks; used by watch mode, MCP server, and OpenClaw integration
+- **OpenClaw integration** — `evalview openclaw install` and `evalview openclaw check` for autonomous agent loops with `check_and_decide()` and `gate_or_revert()` helpers
+- **curl installer** — `curl -fsSL .../install.sh | bash` for zero-friction onboarding
+- **GitHub Action improvements** — auto PR comments, artifact uploads, version pinning, job summary — all in one step
+
+### Changed
+- README rewritten for conversion: pain-first positioning, "Playwright for AI agents" analogy, tighter quickstart, promoted CI/watch/multi-turn sections
+- HTML report: Health Gauge and Score Per Test now display side by side when no trend data available
+- MCP server rewired to use `gate()` API instead of subprocess
+
+### Fixed
+- Check command test mocks updated for `budget_tracker` parameter
+- Badge command mypy type errors resolved
+
+### Documentation
+- CrewAI integration guide with multi-agent and safety test examples
+- Pydantic AI integration guide with FastAPI wrapper and comparison to pydantic_evals
+- OpenClaw walkthrough with prompt optimizer example
+- 26 community issues created (8 good-first-issue, 15 help-wanted, 3 feature requests)
+- GitHub Actions example simplified to 6-line workflow
+
 ## [0.5.1] - 2026-03-13
 
 ### Added
