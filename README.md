@@ -552,9 +552,9 @@ Then just ask Claude: "did my refactor break anything?" and it runs `run_check` 
 
 </details>
 
-## Agent-Native Docs
+## Agent-Friendly Docs
 
-If you're using Cursor, Claude Code, GitHub Copilot, or another coding agent to work on EvalView or integrate it into your stack, start here:
+**Works with your coding agent out of the box.** Ask Cursor, Claude Code, or Copilot to add regression tests, build a new adapter, or debug a failing check — EvalView ships the architecture maps and task recipes they need to get it right on the first try.
 
 - [AGENT_INSTRUCTIONS.md](AGENT_INSTRUCTIONS.md) — architecture map, contracts, invariants, verification commands
 - [Agent Recipes](docs/agent-recipes/README.md) — task-specific playbooks for common extensions
