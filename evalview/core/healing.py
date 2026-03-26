@@ -208,15 +208,18 @@ class HealingEngine:
                 details={"score_delta": diff.score_diff},
             )
 
-        # 6. Model changed -> RETRY with MODEL_UPDATE trigger
-        if diff.model_changed:
+        # 6. Model/runtime changed -> RETRY with MODEL_UPDATE trigger
+        if diff.model_changed or getattr(diff, "runtime_fingerprint_changed", False):
+            target = diff.actual_model_id or getattr(diff, "actual_runtime_fingerprint", None) or "runtime change"
             return HealingDiagnosis(
                 action=HealingAction.RETRY,
                 trigger=HealingTrigger.MODEL_UPDATE,
-                reason=f"model update drift ({diff.actual_model_id})",
+                reason=f"model/runtime update drift ({target})",
                 details={
                     "golden_model": diff.golden_model_id,
                     "actual_model": diff.actual_model_id,
+                    "golden_runtime_fingerprint": getattr(diff, "golden_runtime_fingerprint", None),
+                    "actual_runtime_fingerprint": getattr(diff, "actual_runtime_fingerprint", None),
                 },
             )
 

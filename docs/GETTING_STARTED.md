@@ -10,11 +10,11 @@ EvalView is lightweight, YAML-first, and gets you testing AI agents in under 5 m
 pip install evalview
 ```
 
-For HTML reports with interactive charts:
+HTML reports are included by default. For interactive charts:
 ```bash
 pip install evalview[reports]
 # or
-pip install evalview jinja2 plotly
+pip install evalview plotly
 ```
 
 For development (contributing):

@@ -21,7 +21,7 @@
 
 Your agent returns `200` but silently takes the wrong tool path, skips a clarification, or degrades output quality after a model update. Normal tests don't catch this. **EvalView does.**
 
-**Catches silent model updates.** When your LLM provider ships a new version, EvalView detects the drift and shows exactly what changed.
+**Catches silent model and runtime updates.** EvalView looks for declared model swaps, runtime fingerprint changes, and coordinated drift across tests so you can tell "provider changed something" from "my code broke."
 
 ```
   ✓ login-flow           PASSED
@@ -114,6 +114,18 @@ Use LangSmith for observability. Use Braintrust for scoring. **Use EvalView for 
 | ⚠️ **TOOLS_CHANGED** | Different tools called | Review the diff |
 | ⚠️ **OUTPUT_CHANGED** | Same tools, output shifted | Review the diff |
 | ❌ **REGRESSION** | Score dropped significantly | Fix before shipping |
+
+### Model / Runtime Change Detection
+
+EvalView does more than compare `model_id`.
+
+- **Declared model change**: adapter-reported model changed from baseline
+- **Runtime fingerprint change**: observed model labels in the trace changed, even when the top-level model name is missing
+- **Coordinated drift**: multiple tests shift together in the same check run, which often points to a silent provider rollout or runtime change
+
+When detected, `evalview check` surfaces a run-level signal with a classification (`declared` or `suspected`), confidence level, and evidence from fingerprints, retries, and affected tests.
+
+If the new behavior is correct, rerun `evalview snapshot` to accept the updated baseline.
 
 **Four scoring layers** — the first two are free and offline:
 
@@ -297,7 +309,7 @@ Run N times. Cluster the paths. Save the valid ones. Tests stop being flaky — 
 
 ### Auto-Heal — Fix Flakes Without Leaving CI
 
-Model got silently updated? Output drifted? `--heal` retries safe failures, proposes variants for borderline cases, and hard-escalates everything else. Zero human intervention for flakes.
+Model got silently updated? Output drifted? `--heal` retries safe failures, proposes variants for borderline cases, and hard-escalates everything else. It also records when those retries were triggered by a likely model/runtime update.
 
 ```bash
 evalview check --heal
@@ -308,7 +320,7 @@ evalview check --heal
 
   ✓ login-flow           PASSED
   ⚡ refund-request       HEALED   retried — non-deterministic drift
-  ⚡ order-lookup         HEALED   retried — model update drift (gpt-5.1-2025-11-12)
+  ⚡ order-lookup         HEALED   retried — likely model/runtime update
   ◈ billing-dispute      PROPOSED saved candidate variant auto_heal_a1b2 (score 72)
   ⚠ search-flow          REVIEW   tool removed: web_search
   ✗ safety-check         BLOCKED  forbidden tool called — cannot heal
@@ -318,7 +330,7 @@ evalview check --heal
   Audit log: .evalview/healing/2026-03-25T14-30-00.json
 ```
 
-**Decision policy:** Retry when tools match but output drifted (non-determinism or model update). Propose a variant when retry fails but score is acceptable. Never auto-resolve structural changes, forbidden tool violations, cost spikes, or score improvements. Full audit trail in `.evalview/healing/`.
+**Decision policy:** Retry when tools match but output drifted (non-determinism or likely model/runtime update). Propose a variant when retry fails but score is acceptable. Never auto-resolve structural changes, forbidden tool violations, cost spikes, or score improvements. Full audit trail in `.evalview/healing/`.
 
 **Exit code:** `0` only when every failure was resolved via retry. Proposed variants, reviews, and blocks always exit `1` — CI stays honest.
 

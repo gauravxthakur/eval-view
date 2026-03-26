@@ -128,8 +128,10 @@ def _build_gate_result(
 ) -> GateResult:
     """Convert raw execution output into a GateResult."""
     from evalview.commands.shared import _analyze_check_diffs
+    from evalview.core.model_runtime_detector import analyze_model_runtime_change
 
     analysis = _analyze_check_diffs(diffs)
+    model_runtime = analyze_model_runtime_change(diffs)
 
     # Build per-test diffs
     test_diffs: List[TestDiff] = []
@@ -178,12 +180,15 @@ def _build_gate_result(
             "output_changed": summary.output_changed,
         },
         "analysis": analysis,
+        "model_runtime": model_runtime.model_dump(),
         "diffs": [
             {
                 "test_name": name,
                 "status": d.overall_severity.value,
                 "score_delta": d.score_diff,
                 "tool_diffs_count": len(d.tool_diffs),
+                "model_changed": getattr(d, "model_changed", False),
+                "runtime_fingerprint_changed": getattr(d, "runtime_fingerprint_changed", False),
             }
             for name, d in diffs
         ],

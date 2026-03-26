@@ -10,7 +10,7 @@ Complete reference for all EvalView CLI commands.
 # Install (includes skills testing)
 pip install evalview
 
-# With HTML reports (Plotly charts)
+# With interactive charts on top of the built-in HTML report
 pip install evalview[reports]
 
 # With watch mode
@@ -152,6 +152,16 @@ evalview check --json --fail-on REGRESSION  # CI mode
 evalview check --dry-run                    # Preview plan, no API calls
 evalview check --budget 0.50               # Cap spend at $0.50
 ```
+
+### Model / Runtime Detection
+
+`evalview check` runs a layered detector during baseline comparison:
+
+- **Declared model change** when the adapter reports a different `model_id`
+- **Runtime fingerprint change** when observed model labels in the trace differ from baseline
+- **Coordinated drift detection** when multiple tests shift together in the same run
+
+The terminal output and HTML report surface the classification (`declared` or `suspected`), confidence, runtime fingerprint diff, and retry evidence from `evalview check --heal` when available.
 
 ## `evalview generate`
 

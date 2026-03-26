@@ -16,6 +16,10 @@ import logging
 from evalview.core.types import ExecutionTrace, StepTrace
 from evalview.core.golden import GoldenTrace
 from evalview.core.config import DiffConfig
+from evalview.core.model_runtime_detector import (
+    extract_trace_model_labels,
+    fingerprint_from_labels,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +125,11 @@ class TraceDiff:
     model_changed: bool = False
     golden_model_id: Optional[str] = None
     actual_model_id: Optional[str] = None
+    runtime_fingerprint_changed: bool = False
+    golden_runtime_fingerprint: Optional[str] = None
+    actual_runtime_fingerprint: Optional[str] = None
+    golden_observed_models: List[str] = field(default_factory=list)
+    actual_observed_models: List[str] = field(default_factory=list)
 
     def summary(self) -> str:
         """Human-readable summary of differences."""
@@ -326,6 +335,19 @@ class DiffEngine:
             and actual_model_id
             and golden_model_id != actual_model_id
         )
+        golden_observed_models = extract_trace_model_labels(
+            golden.trace,
+            fallback_model_id=golden.metadata.model_id,
+            fallback_provider=golden.metadata.model_provider,
+        )
+        actual_observed_models = extract_trace_model_labels(actual)
+        golden_runtime_fingerprint = fingerprint_from_labels(golden_observed_models)
+        actual_runtime_fingerprint = fingerprint_from_labels(actual_observed_models)
+        runtime_fingerprint_changed = bool(
+            golden_runtime_fingerprint
+            and actual_runtime_fingerprint
+            and golden_runtime_fingerprint != actual_runtime_fingerprint
+        )
 
         return TraceDiff(
             test_name=golden.metadata.test_name,
@@ -339,6 +361,11 @@ class DiffEngine:
             model_changed=model_changed,
             golden_model_id=golden_model_id,
             actual_model_id=actual_model_id,
+            runtime_fingerprint_changed=runtime_fingerprint_changed,
+            golden_runtime_fingerprint=golden_runtime_fingerprint,
+            actual_runtime_fingerprint=actual_runtime_fingerprint,
+            golden_observed_models=golden_observed_models,
+            actual_observed_models=actual_observed_models,
         )
 
     def compare_multi_reference(

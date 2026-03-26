@@ -41,12 +41,12 @@ dependencies = [
     "httpx>=0.26.0",
     "python-dateutil>=2.8.2",
     "python-dotenv>=1.0.0",
+    "jinja2>=3.0",
 ]
 
 [project.optional-dependencies]
-# HTML reports with interactive charts
+# Interactive charts on top of the built-in HTML report
 reports = [
-    "jinja2>=3.0",
     "plotly>=5.0",
 ]
 # Watch mode for development
@@ -67,7 +67,6 @@ mistral = [
 ]
 # All optional features
 all = [
-    "jinja2>=3.0",
     "plotly>=5.0",
     "watchdog>=3.0",
     "posthog>=3.0.0",

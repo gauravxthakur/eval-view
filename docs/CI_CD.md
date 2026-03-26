@@ -81,14 +81,14 @@ That's it. Every PR now gets a regression check, a PR comment, and a job summary
 > **Alerts**
 > - 💸 Cost spike: $0.02 → $0.08 (+300%)
 > - ⏱️ Latency spike: 1.5s → 4.2s (+180%)
-> - 🤖 Model changed: gpt-5.4 → gpt-5.4-mini
+> - 🤖 Model/runtime update: declared, high confidence
 
 | Metric | Value |
 |--------|-------|
 | Tests | 3/5 unchanged (60%) |
 | Regressions | 1 |
 | Tools Changed | 1 |
-| Model Changed | gpt-5.4 → gpt-5.4-mini |
+| Model Runtime Signal | declared (high confidence) |
 
 ### Changes from Baseline
 - ❌ **search-flow**: score -15.0, 1 tool change(s)
@@ -115,7 +115,7 @@ That's it. Every PR now gets a regression check, a PR comment, and a job summary
 |---------|-------------|
 | **Cost spike alerts** | Warns when total cost increases >50% from baseline |
 | **Latency spike alerts** | Warns when total latency increases >50% from baseline |
-| **Model change callout** | Shows old → new model name when LLM version changes |
+| **Model/runtime callout** | Shows declared or suspected upstream updates with evidence |
 | **Collapsible overflow** | First 5 changes shown inline, rest collapsed in `<details>` |
 | **Comment deduplication** | Updates existing EvalView comment instead of creating duplicates |
 | **Retry with backoff** | Retries `gh` CLI calls up to 3x with exponential backoff |

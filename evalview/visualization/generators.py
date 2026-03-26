@@ -374,6 +374,10 @@ def _diff_rows(
             "confidence_pct": confidence_pct,
             "confidence_label": confidence_label,
             "accept_suggestion": accept_suggestion,
+            "model_changed": bool(getattr(d, "model_changed", False)),
+            "runtime_fingerprint_changed": bool(getattr(d, "runtime_fingerprint_changed", False)),
+            "golden_runtime_fingerprint": getattr(d, "golden_runtime_fingerprint", None),
+            "actual_runtime_fingerprint": getattr(d, "actual_runtime_fingerprint", None),
         })
     return rows
 
@@ -431,6 +435,7 @@ def generate_visual_report(
     judge_usage: Optional[Dict[str, Any]] = None,
     default_tab: Optional[str] = None,
     healing_summary: Optional[Any] = None,
+    model_runtime_summary: Optional[Any] = None,
     effective_all_passed: Optional[bool] = None,
 ) -> str:
     """Generate a self-contained visual HTML report.
@@ -693,6 +698,7 @@ def generate_visual_report(
         default_tab=default_tab or "overview",
         dashboard=dashboard,
         healing=healing_summary.model_dump() if healing_summary is not None else None,
+        model_runtime=model_runtime_summary.model_dump() if model_runtime_summary is not None else None,
         effective_all_passed=effective_all_passed,
     )
 
@@ -701,7 +707,7 @@ def generate_visual_report(
         f.write(html)
 
     if auto_open:
-        webbrowser.open(f"file://{abs_path}")
+        webbrowser.open_new_tab(Path(abs_path).resolve().as_uri())
 
     return abs_path
 
@@ -1067,6 +1073,33 @@ table td,table th{transition:background .1s}
       </div>
     </div>
     {% endif %}
+    {% if model_runtime and model_runtime.classification != 'none' %}
+    <div class="card">
+      <div class="card-title">Model / Runtime Signal</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <span class="badge {% if model_runtime.classification == 'declared' %}b-red{% else %}b-yellow{% endif %}">
+          {% if model_runtime.classification == 'declared' %}Declared model change{% else %}Possible runtime update{% endif %}
+        </span>
+        <span class="badge b-blue">{{ model_runtime.confidence }} confidence</span>
+        <span class="badge b-cyan">{{ model_runtime.affected_count }} affected</span>
+      </div>
+      {% if model_runtime.baseline_fingerprints and model_runtime.current_fingerprints %}
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:10px">
+        <span style="color:var(--text-4)">Runtime fingerprint</span>
+        <span class="mono" style="color:var(--text-3)"> {{ model_runtime.baseline_fingerprints[0] }}</span>
+        <span style="color:var(--text-4)"> → </span>
+        <span class="mono" style="color:var(--text)">{{ model_runtime.current_fingerprints[0] }}</span>
+      </div>
+      {% endif %}
+      {% if model_runtime.evidence %}
+      <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-2)">
+        {% for item in model_runtime.evidence[:4] %}
+        <div><span style="color:var(--text-4)">•</span> {{ item }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
     {% if not judge_usage or not judge_usage.call_count %}
     <div style="font-size:11px;color:var(--text-4);padding:0 4px 6px;line-height:1.4">
       No LLM judge was used — hallucination, safety, and PII checks were skipped. Run without <code style="background:rgba(255,255,255,.04);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:10px;border:1px solid var(--border)">--no-judge</code> to enable them.
@@ -1233,6 +1266,7 @@ table td,table th{transition:background .1s}
               {% elif hr.diagnosis.action == 'flag_review' %}<span class="badge b-yellow">⚠ Review</span>{% endif %}
             {% endfor %}
           {% endif %}
+          {% if d.model_changed %}<span class="badge b-red">Model ID changed</span>{% elif d.runtime_fingerprint_changed %}<span class="badge b-yellow">Runtime fingerprint changed</span>{% endif %}
           <span class="diff-name">{{ d.name }}</span>
           {% if d.actual_score is not none %}<span class="mc" title="Weighted score: tool accuracy (30%) + output quality (50%) + sequence correctness (20%). Baseline → Current." style="color:{% if d.actual_score >= 80 %}var(--green-bright){% elif d.actual_score >= 60 %}var(--yellow-bright){% else %}var(--red-bright){% endif %}">{{ d.baseline_score }} → {{ d.actual_score }}</span>{% endif %}
           {% if d.score_delta != 0 %}<span class="badge {% if d.score_delta > 0 %}b-green{% else %}b-red{% endif %}" title="Score change from baseline snapshot">{% if d.score_delta > 0 %}+{% endif %}{{ d.score_delta }}</span>{% endif %}
@@ -1247,6 +1281,14 @@ table td,table th{transition:background .1s}
           <div class="pipeline-row"><span class="pipeline-label">Baseline</span>{% for t in d.golden_tools %}<span class="pipe-step {% if t not in d.actual_tools %}removed{% else %}match{% endif %}">{{ t }}</span>{% endfor %}{% if not d.golden_tools %}<span style="font-size:11px;color:var(--text-4);font-style:italic">No tools</span>{% endif %}</div>
           <div class="pipeline-row"><span class="pipeline-label">Current</span>{% for t in d.actual_tools %}<span class="pipe-step {% if t not in d.golden_tools %}added{% else %}match{% endif %}">{{ t }}</span>{% endfor %}{% if not d.actual_tools %}<span style="font-size:11px;color:var(--text-4);font-style:italic">No tools</span>{% endif %}</div>
         </div>{% endif %}
+        {% if d.golden_runtime_fingerprint and d.actual_runtime_fingerprint and d.golden_runtime_fingerprint != d.actual_runtime_fingerprint %}
+        <div style="padding:0 18px 12px;font-size:12px;color:var(--text-2)">
+          <span style="color:var(--text-4)">Runtime fingerprint:</span>
+          <span class="mono" style="color:var(--text-3)">{{ d.golden_runtime_fingerprint }}</span>
+          <span style="color:var(--text-4)"> → </span>
+          <span class="mono" style="color:var(--text)">{{ d.actual_runtime_fingerprint }}</span>
+        </div>
+        {% endif %}
         <div class="diff-cols">
           <div class="diff-col"><div class="col-title">Baseline Output</div><div class="outbox">{{ d.golden_out }}</div></div>
           <div class="diff-col"><div class="col-title">Current Output</div><div class="outbox">{{ d.actual_out }}</div>{% if d.diff_lines %}<div class="difflines">{% for line in d.diff_lines %}{% if line.startswith('+') %}<div class="a">{{ line }}</div>{% elif line.startswith('-') %}<div class="r">{{ line }}</div>{% else %}<div>{{ line }}</div>{% endif %}{% endfor %}</div>{% endif %}</div>

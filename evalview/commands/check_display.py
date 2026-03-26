@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from evalview.core.golden import GoldenTrace
     from evalview.core.root_cause import RootCauseAnalysis
     from evalview.core.healing import HealingSummary
+    from evalview.core.model_runtime_detector import ModelRuntimeChangeSummary
 
 
 def _print_parameter_diffs(tool_diffs: List["ToolDiff"]) -> None:
@@ -138,6 +139,33 @@ def _print_root_cause(root_cause: "RootCauseAnalysis") -> None:
     ))
 
 
+def _print_model_runtime_summary(summary: "ModelRuntimeChangeSummary") -> None:
+    """Print a run-level model/runtime change summary when detected."""
+    from rich.panel import Panel
+
+    if not summary.detected:
+        return
+
+    title = "⚠  Model/Runtime Change Detected" if summary.classification == "declared" else "⚠  Possible Model/Runtime Update"
+    color = "yellow" if summary.confidence != "high" else "red"
+    lines = [
+        f"[bold]Signal:[/bold] {summary.classification}  [dim]({summary.confidence} confidence)[/dim]",
+        f"[bold]Affected tests:[/bold] {summary.affected_count}",
+    ]
+    if summary.baseline_fingerprints and summary.current_fingerprints:
+        lines.append(
+            f"[bold]Runtime fingerprint:[/bold] [dim]{summary.baseline_fingerprints[0]}[/dim] → [bold]{summary.current_fingerprints[0]}[/bold]"
+        )
+    for evidence in summary.evidence[:3]:
+        lines.append(f"  [dim]•[/dim] {evidence}")
+    lines.append(
+        "If the new behavior is correct, run [bold]evalview snapshot[/bold] to accept the new baseline."
+    )
+
+    console.print(Panel("\n".join(lines), title=title, border_style=color))
+    console.print()
+
+
 def _print_inline_trajectory(diff: "TraceDiff", golden: Optional["GoldenTrace"], result: Optional["EvaluationResult"]) -> None:
     """Print a compact inline trajectory comparison for check output."""
     golden_seq: List[str] = []
@@ -226,6 +254,7 @@ def _display_check_results(
     ai_root_causes: Optional[Dict[str, Any]] = None,
     test_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
     healing_summary: Optional["HealingSummary"] = None,
+    model_runtime_summary: Optional["ModelRuntimeChangeSummary"] = None,
 ) -> None:
     """Display check results in JSON or console format."""
     import json
@@ -296,6 +325,9 @@ def _display_check_results(
                     "model_changed": getattr(diff, "model_changed", False),
                     "golden_model_id": getattr(diff, "golden_model_id", None),
                     "actual_model_id": getattr(diff, "actual_model_id", None),
+                    "runtime_fingerprint_changed": getattr(diff, "runtime_fingerprint_changed", False),
+                    "golden_runtime_fingerprint": getattr(diff, "golden_runtime_fingerprint", None),
+                    "actual_runtime_fingerprint": getattr(diff, "actual_runtime_fingerprint", None),
                     "turn_diffs": [
                         {
                             "turn": td.turn_index,
@@ -328,6 +360,8 @@ def _display_check_results(
                 "audit_path": healing_summary.audit_path,
                 "results": [r.model_dump() for r in healing_summary.results],
             }
+        if model_runtime_summary:
+            output["model_runtime"] = model_runtime_summary.model_dump()
         print(json.dumps(output, indent=2))
     else:
         # Console output with personality
@@ -380,27 +414,7 @@ def _display_check_results(
         if is_first_check:
             Celebrations.first_check()
 
-        # Model version change warning
-        model_changed_diffs = [
-            (name, d) for name, d in diffs if getattr(d, "model_changed", False)
-        ]
-        if model_changed_diffs:
-            name, d = model_changed_diffs[0]
-            golden_m = getattr(d, "golden_model_id", "unknown")
-            actual_m = getattr(d, "actual_model_id", "unknown")
-            console.print(
-                Panel(
-                    f"[yellow]Model changed:[/yellow] "
-                    f"[dim]{golden_m}[/dim] → [bold]{actual_m}[/bold]\n\n"
-                    "Baselines were captured with a different model version. "
-                    "Output changes below may be caused by the model update rather "
-                    "than your code. If the new behavior looks correct, run "
-                    "[bold]evalview snapshot[/bold] to update the baseline.",
-                    title="⚠  Model Version Change Detected",
-                    border_style="yellow",
-                )
-            )
-            console.print()
+        _print_model_runtime_summary(model_runtime_summary)  # richer replacement for boolean model_changed banner
 
         # Gradual drift warnings
         _drift = drift_tracker if drift_tracker is not None else DriftTracker()

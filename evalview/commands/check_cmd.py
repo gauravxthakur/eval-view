@@ -633,9 +633,12 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
 
         _asyncio.run(_heal_all())
 
-        # Build model update summary if any tests had model_changed
+        # Build model update summary if any tests had a model/runtime change signal
         model_update = None
-        model_affected = [(n, d) for n, d in diffs if d.model_changed]
+        model_affected = [
+            (n, d) for n, d in diffs
+            if d.model_changed or getattr(d, "runtime_fingerprint_changed", False)
+        ]
         if model_affected:
             _, first_model_diff = model_affected[0]
             model_healed = sum(
@@ -643,8 +646,16 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
                 if r.healed and r.diagnosis.trigger == HealingTrigger.MODEL_UPDATE
             )
             model_update = ModelUpdateSummary(
-                golden_model=first_model_diff.golden_model_id or "unknown",
-                actual_model=first_model_diff.actual_model_id or "unknown",
+                golden_model=(
+                    first_model_diff.golden_model_id
+                    or getattr(first_model_diff, "golden_runtime_fingerprint", None)
+                    or "unknown"
+                ),
+                actual_model=(
+                    first_model_diff.actual_model_id
+                    or getattr(first_model_diff, "actual_runtime_fingerprint", None)
+                    or "unknown"
+                ),
                 affected_count=len(model_affected),
                 healed_count=model_healed,
                 failed_count=len(model_affected) - model_healed,
@@ -756,6 +767,13 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
             console.print("[dim]🤖 Running AI root cause analysis...[/dim]\n")
         ai_root_causes = asyncio.run(enrich_diffs_with_ai(diffs))
 
+    from evalview.core.model_runtime_detector import analyze_model_runtime_change
+
+    model_runtime_summary = analyze_model_runtime_change(
+        diffs,
+        healing_summary=healing_summary,
+    )
+
     # Display results
     _display_check_results(
         diffs, analysis, state, is_first_check, json_output,
@@ -765,6 +783,7 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
         ai_root_causes=ai_root_causes,
         test_metadata=test_metadata,
         healing_summary=healing_summary,
+        model_runtime_summary=model_runtime_summary,
     )
 
     if execution_failures > 0 and not json_output:
@@ -796,6 +815,7 @@ def check(test_path: str, test: str, json_output: bool, fail_on: str, strict: bo
             title="EvalView Check Report",
             default_tab=tab,
             healing_summary=healing_summary,
+            model_runtime_summary=model_runtime_summary,
             effective_all_passed=analysis["effective_all_passed"],
         )
         if not json_output:
