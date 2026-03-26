@@ -67,8 +67,11 @@ def _string_or_none(value: Any) -> Optional[str]:
 
 def _has_structural_tool_change(diff: Any) -> bool:
     return any(
-        td.type in ("added", "removed", "reordered")
-        or (td.type == "changed" and td.golden_tool != td.actual_tool)
+        getattr(td, "type", None) in ("added", "removed", "reordered")
+        or (
+            getattr(td, "type", None) == "changed"
+            and getattr(td, "golden_tool", None) != getattr(td, "actual_tool", None)
+        )
         for td in getattr(diff, "tool_diffs", []) or []
     )
 

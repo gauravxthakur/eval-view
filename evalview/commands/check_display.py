@@ -143,7 +143,7 @@ def _print_model_runtime_summary(summary: "ModelRuntimeChangeSummary") -> None:
     """Print a run-level model/runtime change summary when detected."""
     from rich.panel import Panel
 
-    if not summary.detected:
+    if summary is None or not summary.detected:
         return
 
     title = "⚠  Model/Runtime Change Detected" if summary.classification == "declared" else "⚠  Possible Model/Runtime Update"

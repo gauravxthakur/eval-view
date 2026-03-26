@@ -40,10 +40,6 @@ Your agent returns `200` but silently takes the wrong tool path, skips a clarifi
       Score: 85 → 55  Output similarity: 35%
 ```
 
-<p align="center">
-  <img src="assets/hero.jpg" alt="EvalView — multi-turn execution trace with sequence diagram" width="860">
-</p>
-
 ## Quick Start
 
 ```bash
