@@ -25,7 +25,7 @@ Your agent returns `200` but silently takes the wrong tool path, skips a clarifi
 
 <p align="center">
   <a href="assets/evalview-demo.mp4">
-    <img src="assets/evalview-demo.gif" alt="Watch the EvalView demo" width="860">
+    <img src="assets/evalview-demo.gif" alt="Watch the EvalView demo" width="1100">
   </a>
   <br>
   <strong>30-second live demo.</strong> Click the preview to watch the full recording.
