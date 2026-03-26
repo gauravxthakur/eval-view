@@ -24,7 +24,7 @@ from typing import Any, Dict
 import click
 from rich.panel import Panel
 
-from evalview.commands.shared import console
+from evalview.commands.shared import console, run_with_spinner
 from evalview.telemetry.decorators import track_command
 
 
@@ -253,13 +253,18 @@ def demo():
         console.print()
         console.print("  [dim]Running 2 tests against the live agent...[/dim]")
 
-        _subprocess.run(
-            ["evalview", "snapshot", "--path", "tests/"],
-            cwd=_tmpdir,
-            env=_env,
-            stdin=_subprocess.DEVNULL,
-            stdout=_subprocess.DEVNULL,
-            stderr=_subprocess.DEVNULL,
+        run_with_spinner(
+            lambda: _subprocess.run(
+                ["evalview", "snapshot", "--path", "tests/"],
+                cwd=_tmpdir,
+                env=_env,
+                stdin=_subprocess.DEVNULL,
+                stdout=_subprocess.DEVNULL,
+                stderr=_subprocess.DEVNULL,
+                check=False,
+            ),
+            "Running",
+            2,
         )
 
         _sleep(0.5)
@@ -283,13 +288,18 @@ def demo():
 
         # Run check --heal silently — CI=1 suppresses auto-open, --report forces generation
         _report = str(_tmp / ".evalview" / "demo-report.html")
-        _subprocess.run(
-            ["evalview", "check", "--heal", "--report", _report],
-            cwd=_tmpdir,
-            env=_env,
-            stdin=_subprocess.DEVNULL,
-            stdout=_subprocess.DEVNULL,
-            stderr=_subprocess.DEVNULL,
+        run_with_spinner(
+            lambda: _subprocess.run(
+                ["evalview", "check", "--heal", "--report", _report],
+                cwd=_tmpdir,
+                env=_env,
+                stdin=_subprocess.DEVNULL,
+                stdout=_subprocess.DEVNULL,
+                stderr=_subprocess.DEVNULL,
+                check=False,
+            ),
+            "Checking",
+            2,
         )
 
         _sleep(0.6)
