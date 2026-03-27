@@ -27,6 +27,10 @@ Your agent can still return `200` and be wrong. A model or provider update can c
 
 **30-second live demo.**
 
+If the video does not render in your GitHub app, use the GIF preview below.
+
+[![demo.gif](assets/demo.gif)](https://github.com/user-attachments/assets/96d8b5f7-3561-44a1-86a4-270fb0d1d8a6)
+
 Most eval tools stop at detect and compare. EvalView helps you classify changes, inspect drift, and auto-heal the safe cases.
 
 - Catch silent regressions that normal tests miss
