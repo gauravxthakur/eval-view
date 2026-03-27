@@ -27,6 +27,12 @@ Your agent can still return `200` and be wrong. A model update can change tool c
 
 **30-second live demo.**
 
+Most eval tools report changes. EvalView helps you classify them, inspect them, and recover the boring ones safely.
+
+- Detect silent regressions in outputs, tool usage, and runtime behavior
+- Separate provider/model drift from real system regressions
+- Auto-heal flaky failures with bounded retries, review gates, and audit logs
+
 ```
   ✓ login-flow           PASSED
   ⚠ refund-request       TOOLS_CHANGED
