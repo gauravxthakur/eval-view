@@ -23,7 +23,7 @@ Your agent can still return `200` and be wrong. A model update can change tool c
 
 **It tracks behavior drift across outputs, tools, model IDs, and runtime fingerprints, so you can tell "the provider changed" from "my system regressed."**
 
-[evalview-demo1-balanced.mp4](https://github.com/user-attachments/assets/0cd41633-ba1d-42a9-afbd-eeefabb85fbd)
+[demo.mp4](https://github.com/user-attachments/assets/0cd41633-ba1d-42a9-afbd-eeefabb85fbd)
 
 **30-second live demo.**
 
