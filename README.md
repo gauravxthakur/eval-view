@@ -19,9 +19,9 @@
 
 ---
 
-Your agent returns `200` but silently takes the wrong tool path, skips a clarification, or degrades output quality after a model update. Normal tests don't catch this. **EvalView does.**
+Your agent can still return `200` and be wrong. A model update can change tool choice, skip a clarification, or degrade output quality without breaking basic tests. **EvalView surfaces those silent regressions.**
 
-**Catches silent model and runtime updates.** EvalView looks for declared model swaps, runtime fingerprint changes, and coordinated drift across tests so you can tell "provider changed something" from "my code broke."
+**It tracks behavior drift across outputs, tools, model IDs, and runtime fingerprints, so you can tell "the provider changed" from "my system regressed."**
 
 [evalview-demo1-balanced.mp4](https://github.com/user-attachments/assets/0cd41633-ba1d-42a9-afbd-eeefabb85fbd)
 
