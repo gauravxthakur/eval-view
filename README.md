@@ -23,7 +23,7 @@ Your agent returns `200` but silently takes the wrong tool path, skips a clarifi
 
 **Catches silent model and runtime updates.** EvalView looks for declared model swaps, runtime fingerprint changes, and coordinated drift across tests so you can tell "provider changed something" from "my code broke."
 
-[evalview-demo.mp4](https://github.com/user-attachments/assets/7017fc58-bd93-465e-aad5-5b646b2baa95)
+[evalview-demo1-balanced.mp4](https://github.com/user-attachments/assets/0cd41633-ba1d-42a9-afbd-eeefabb85fbd)
 
 **30-second live demo.**
 
