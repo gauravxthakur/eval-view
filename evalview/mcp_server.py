@@ -1,4 +1,4 @@
-"""EvalView MCP Server — exposes evalview check/snapshot as MCP tools for Claude Code."""
+"""EvalView MCP Server — exposes the full evalview CLI as MCP tools for Claude Code."""
 
 import json
 import os
@@ -89,6 +89,7 @@ TOOLS = [
             "TOOLS_CHANGED / OUTPUT_CHANGED are warnings: the agent's behavior shifted but may be intentional. "
             "Use this after any code change (prompt, model, tools) to confirm nothing broke. "
             "If you see a regression, show the diff to the user and offer to fix it before moving on. "
+            "Use heal=true to auto-retry flaky failures and distinguish non-determinism from real drift. "
             "IMPORTANT: Automatically detect test_path by looking for a 'tests/evalview/' "
             "directory in the current project. If it exists, pass it as test_path. "
             "If the project has a custom test location, use that instead."
@@ -106,6 +107,55 @@ TOOLS = [
                         "Path to the test directory. "
                         "Auto-detect: use 'tests/evalview/' if it exists, otherwise 'tests'."
                     ),
+                },
+                "heal": {
+                    "type": "boolean",
+                    "description": "Auto-retry flaky failures, propose candidate variants, distinguish non-determinism from real regressions. Default: false.",
+                },
+                "strict": {
+                    "type": "boolean",
+                    "description": "Fail on any change (REGRESSION, TOOLS_CHANGED, OUTPUT_CHANGED). Default: false.",
+                },
+                "ai_root_cause": {
+                    "type": "boolean",
+                    "description": "Use AI to explain low-confidence regressions with root-cause analysis. Default: false.",
+                },
+                "statistical": {
+                    "type": "integer",
+                    "description": "Run each test N times for variance analysis (e.g. 5). Omit for single run.",
+                },
+                "auto_variant": {
+                    "type": "boolean",
+                    "description": "Auto-discover distinct execution paths as golden variants. Requires statistical. Default: false.",
+                },
+                "budget": {
+                    "type": "number",
+                    "description": "Maximum total budget in dollars (e.g. 0.50). Remaining tests skipped when limit hit.",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "Preview test plan and estimate cost without executing. Default: false.",
+                },
+                "tag": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Check only tests tagged with these behaviors (OR match). E.g. ['tool_use', 'retrieval'].",
+                },
+                "fail_on": {
+                    "type": "string",
+                    "description": "Comma-separated statuses to fail on (default: REGRESSION). E.g. 'REGRESSION,TOOLS_CHANGED'.",
+                },
+                "timeout": {
+                    "type": "number",
+                    "description": "Timeout per test in seconds (default: 120).",
+                },
+                "report": {
+                    "type": "string",
+                    "description": "Generate HTML report at this path (auto-opens in browser).",
+                },
+                "judge": {
+                    "type": "string",
+                    "description": "Judge model for scoring (e.g. 'gpt-5', 'sonnet').",
                 },
             },
         },
@@ -140,6 +190,26 @@ TOOLS = [
                         "Path to the test directory. "
                         "Auto-detect: use 'tests/evalview/' if it exists, otherwise 'tests'."
                     ),
+                },
+                "variant": {
+                    "type": "string",
+                    "description": "Save as named variant for non-deterministic agents (max 5 per test). E.g. 'v2', 'async-path'.",
+                },
+                "preview": {
+                    "type": "boolean",
+                    "description": "Show what would change without saving (dry-run mode). Default: false.",
+                },
+                "reset": {
+                    "type": "boolean",
+                    "description": "Delete all existing baselines before capturing new ones. Default: false.",
+                },
+                "judge": {
+                    "type": "string",
+                    "description": "Judge model for scoring (e.g. 'gpt-5', 'sonnet').",
+                },
+                "timeout": {
+                    "type": "number",
+                    "description": "Timeout per test in seconds (default: 30).",
                 },
             },
         },
@@ -265,6 +335,74 @@ TOOLS = [
                 "no_auto_open": {
                     "type": "boolean",
                     "description": "Set to true to suppress auto-opening the browser (useful in CI). Default: false.",
+                },
+            },
+        },
+    },
+    {
+        "name": "compare_agents",
+        "description": (
+            "Compare two agent endpoints side-by-side on the same test suite. "
+            "Useful for A/B testing a new model, prompt change, or architecture swap. "
+            "Returns per-test score deltas, tool diffs, and an optional HTML report."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "required": ["v1", "v2"],
+            "properties": {
+                "v1": {
+                    "type": "string",
+                    "description": "Baseline agent endpoint URL (e.g. 'http://localhost:8000/invoke')",
+                },
+                "v2": {
+                    "type": "string",
+                    "description": "Candidate agent endpoint URL (e.g. 'http://localhost:8001/invoke')",
+                },
+                "tests": {
+                    "type": "string",
+                    "description": "Test directory (default: 'tests/')",
+                },
+                "adapter": {
+                    "type": "string",
+                    "description": "Adapter type (http, langgraph, crewai, etc.). Default: from config or http.",
+                },
+                "label_v1": {
+                    "type": "string",
+                    "description": "Label for v1 in report (default: 'baseline')",
+                },
+                "label_v2": {
+                    "type": "string",
+                    "description": "Label for v2 in report (default: 'candidate')",
+                },
+                "no_judge": {
+                    "type": "boolean",
+                    "description": "Skip LLM-as-judge, deterministic scoring only. Default: false.",
+                },
+            },
+        },
+    },
+    {
+        "name": "replay",
+        "description": (
+            "Open a trajectory diff viewer for a specific test. "
+            "Shows a side-by-side HTML comparison of baseline vs current behavior — "
+            "tool calls, parameters, outputs, and score changes. "
+            "Opens automatically in the browser."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "test_name": {
+                    "type": "string",
+                    "description": "Name of the test to replay (optional — shows latest if omitted)",
+                },
+                "test_path": {
+                    "type": "string",
+                    "description": "Path to test directory (default: 'tests/')",
+                },
+                "no_browser": {
+                    "type": "boolean",
+                    "description": "Don't auto-open HTML report in browser. Default: false.",
                 },
             },
         },
@@ -413,15 +551,31 @@ class MCPServer:
             return "Error: evalview not found in PATH. Run: pip install -e ."
 
         if name == "run_check":
+            # Use subprocess when advanced flags are present; direct API otherwise
+            advanced_flags = ("heal", "strict", "ai_root_cause", "statistical",
+                              "auto_variant", "budget", "dry_run", "tag",
+                              "fail_on", "report", "judge")
+            if any(args.get(f) for f in advanced_flags):
+                return self._run_check_subprocess(args)
             return self._run_check_direct(args)
 
         elif name == "run_snapshot":
             test_path = os.path.normpath(args.get("test_path", self.test_path))
-            cmd = ["evalview", "snapshot", test_path]
+            cmd = ["evalview", "snapshot", "--path", test_path]
             if args.get("test"):
                 cmd += ["--test", args["test"]]
             if args.get("notes"):
                 cmd += ["--notes", args["notes"]]
+            if args.get("variant"):
+                cmd += ["--variant", args["variant"]]
+            if args.get("preview") is True:
+                cmd += ["--preview"]
+            if args.get("reset") is True:
+                cmd += ["--reset"]
+            if args.get("judge"):
+                cmd += ["--judge", args["judge"]]
+            if args.get("timeout"):
+                cmd += ["--timeout", str(args["timeout"])]
 
         elif name == "list_tests":
             cmd = ["evalview", "golden", "list"]
@@ -459,6 +613,35 @@ class MCPServer:
         elif name == "generate_visual_report":
             return self._generate_visual_report(args)
 
+        elif name == "compare_agents":
+            v1 = args.get("v1", "")
+            v2 = args.get("v2", "")
+            if not v1 or not v2:
+                return "Error: 'v1' and 'v2' endpoint URLs are required."
+            cmd = ["evalview", "compare", "--v1", v1, "--v2", v2, "--no-open"]
+            if args.get("tests"):
+                cmd += ["--tests", os.path.normpath(args["tests"])]
+            if args.get("adapter"):
+                cmd += ["--adapter", args["adapter"]]
+            if args.get("label_v1"):
+                cmd += ["--label-v1", args["label_v1"]]
+            if args.get("label_v2"):
+                cmd += ["--label-v2", args["label_v2"]]
+            if args.get("no_judge") is True:
+                cmd += ["--no-judge"]
+
+        elif name == "replay":
+            cmd = ["evalview", "replay"]
+            if args.get("test_name"):
+                cmd += [args["test_name"]]
+            if args.get("test_path"):
+                cmd += ["--test-path", os.path.normpath(args["test_path"])]
+            if not args.get("no_browser"):
+                # Default to opening browser for replay (visual tool)
+                pass
+            else:
+                cmd += ["--no-browser"]
+
         else:
             return f"Unknown tool: {name}"
 
@@ -470,19 +653,76 @@ class MCPServer:
         subcommands = cmd[1:3]  # e.g. ["skill", "test"] or ["snapshot"]
         if subcommands == ["skill", "test"]:
             timeout = 600
-        elif any(s in subcommands for s in ("generate-tests", "snapshot", "run")):
+        elif any(s in subcommands for s in ("generate-tests", "snapshot", "run", "compare")):
             timeout = 120
         else:
             timeout = 30
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, env=env, timeout=timeout
+                cmd, capture_output=True, text=True, env=env,
+                timeout=timeout, stdin=subprocess.DEVNULL,
             )
         except subprocess.TimeoutExpired:
             return (
                 f"Error: Command timed out after {timeout}s.\n"
                 f"Command: {' '.join(cmd)}\n"
                 f"Tip: Check that your API key is set and the model is reachable."
+            )
+        output = result.stdout
+        if result.stderr:
+            output += result.stderr
+        output = _ANSI_ESCAPE.sub("", output).strip()
+        return output or f"Command exited with code {result.returncode}"
+
+    def _run_check_subprocess(self, args: Dict[str, Any]) -> str:
+        """Run regression check via subprocess with full flag support."""
+        test_path = os.path.normpath(args.get("test_path", self.test_path))
+        # check takes test_path as a positional argument
+        cmd = ["evalview", "check", test_path]
+        if args.get("test"):
+            cmd += ["--test", args["test"]]
+        if args.get("heal") is True:
+            cmd += ["--heal"]
+        if args.get("strict") is True:
+            cmd += ["--strict"]
+        if args.get("ai_root_cause") is True:
+            cmd += ["--ai-root-cause"]
+        if args.get("statistical"):
+            cmd += ["--statistical", str(int(args["statistical"]))]
+        if args.get("auto_variant") is True:
+            cmd += ["--auto-variant"]
+        if args.get("budget"):
+            cmd += ["--budget", str(args["budget"])]
+        if args.get("dry_run") is True:
+            cmd += ["--dry-run"]
+        if args.get("tag"):
+            for t in args["tag"]:
+                cmd += ["--tag", t]
+        if args.get("fail_on"):
+            cmd += ["--fail-on", args["fail_on"]]
+        if args.get("timeout"):
+            cmd += ["--timeout", str(args["timeout"])]
+        if args.get("report"):
+            cmd += ["--report", os.path.normpath(args["report"])]
+        if args.get("judge"):
+            cmd += ["--judge", args["judge"]]
+        # Timeout tiers: statistical > heal > default
+        proc_timeout = 120
+        if args.get("heal"):
+            proc_timeout = 300
+        if args.get("statistical"):
+            proc_timeout = 600
+        env = {**os.environ, "NO_COLOR": "1", "FORCE_COLOR": "0"}
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, env=env,
+                timeout=proc_timeout, stdin=subprocess.DEVNULL,
+            )
+        except subprocess.TimeoutExpired:
+            return (
+                f"Error: Command timed out after {proc_timeout}s.\n"
+                f"Command: {' '.join(cmd)}\n"
+                f"Tip: Heal and statistical modes take longer — try fewer tests or a higher timeout."
             )
         output = result.stdout
         if result.stderr:
@@ -503,11 +743,12 @@ class MCPServer:
             test_path = os.path.normpath(args.get("test_path", self.test_path))
             test_name = args.get("test") or None
 
+            user_timeout = float(args.get("timeout", 120.0))
             result = gate(
                 test_dir=test_path,
                 test_name=test_name,
                 fail_on={DiffStatus.REGRESSION},
-                timeout=120.0,
+                timeout=user_timeout,
             )
 
             # Build the same JSON structure as `evalview check --json`
@@ -546,7 +787,7 @@ class MCPServer:
                 cmd += ["--test", args["test"]]
             env = {**os.environ, "NO_COLOR": "1", "FORCE_COLOR": "0"}
             try:
-                proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=30)
+                proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=60, stdin=subprocess.DEVNULL)
                 fallback_output = proc.stdout + (proc.stderr or "")
                 return _ANSI_ESCAPE.sub("", fallback_output).strip() or f"Error: {e}"
             except Exception:
