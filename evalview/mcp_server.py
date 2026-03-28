@@ -653,7 +653,7 @@ class MCPServer:
         subcommands = cmd[1:3]  # e.g. ["skill", "test"] or ["snapshot"]
         if subcommands == ["skill", "test"]:
             timeout = 600
-        elif any(s in subcommands for s in ("generate-tests", "snapshot", "run", "compare")):
+        elif any(s in subcommands for s in ("generate-tests", "snapshot", "run", "compare", "replay")):
             timeout = 120
         else:
             timeout = 30
@@ -675,10 +675,14 @@ class MCPServer:
         return output or f"Command exited with code {result.returncode}"
 
     def _run_check_subprocess(self, args: Dict[str, Any]) -> str:
-        """Run regression check via subprocess with full flag support."""
+        """Run regression check via subprocess with full flag support.
+
+        Always forces --json so the output contract matches the direct API path.
+        HTML reports are generated as a side effect but never auto-opened (CI=1).
+        """
         test_path = os.path.normpath(args.get("test_path", self.test_path))
-        # check takes test_path as a positional argument
-        cmd = ["evalview", "check", test_path]
+        # check takes test_path as a positional argument; always --json for stable contract
+        cmd = ["evalview", "check", test_path, "--json"]
         if args.get("test"):
             cmd += ["--test", args["test"]]
         if args.get("heal") is True:
@@ -712,7 +716,8 @@ class MCPServer:
             proc_timeout = 300
         if args.get("statistical"):
             proc_timeout = 600
-        env = {**os.environ, "NO_COLOR": "1", "FORCE_COLOR": "0"}
+        # CI=1 suppresses browser auto-open from --report
+        env = {**os.environ, "NO_COLOR": "1", "FORCE_COLOR": "0", "CI": "1"}
         try:
             result = subprocess.run(
                 cmd, capture_output=True, text=True, env=env,
