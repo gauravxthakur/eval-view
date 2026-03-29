@@ -3,6 +3,10 @@
 This file is written for coding agents working inside the EvalView repository.
 Use it as the fastest way to understand the architecture, the important invariants, and the common extension paths.
 
+For the repo's product and development philosophy, also read:
+
+- `docs/OPERATING_MODEL.md`
+
 ## What EvalView Is
 
 EvalView is a regression gate for AI agents.
@@ -17,6 +21,16 @@ Its core job is:
 6. Render reviewable terminal and HTML diffs.
 
 EvalView is not just a scorer. It is opinionated around baseline comparison, regression detection, and developer-facing review flows.
+
+Internally, the intended loop is:
+
+1. specify the behavior change
+2. implement with agent help
+3. review hard
+4. run the relevant behavior-tagged slice
+5. snapshot intentional deltas
+6. run `check`
+7. ship
 
 ## Core Concepts
 

@@ -34,6 +34,13 @@ Most eval tools stop at detect and compare. EvalView helps you classify changes,
 - Separate provider/model drift from real system regressions
 - Auto-heal flaky failures with retries, review gates, and audit logs
 
+Built for **frontier-lab rigor, startup-team practicality**:
+- behavior-first evals over benchmark theater
+- deterministic checks first, LLM judgment where it adds signal
+- faster loops from change -> eval -> review -> ship
+
+[How we run EvalView with this operating model →](docs/OPERATING_MODEL.md)
+
 ```
   ✓ login-flow           PASSED
   ⚠ refund-request       TOOLS_CHANGED
