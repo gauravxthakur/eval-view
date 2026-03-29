@@ -1,5 +1,6 @@
 .PHONY: help install test format lint typecheck check clean dev-install run-example agent-tests gym gym-list gym-failures gym-security gym-agent \
-        dogfood-agent dogfood-check dogfood-snapshot dogfood-run
+        dogfood-agent dogfood-check dogfood-snapshot dogfood-run dogfood-mcp dogfood-healing dogfood-snapshot-core \
+        dogfood-check-core dogfood-reporting dogfood-agent-docs dogfood-core
 
 # Default target
 help:
@@ -36,6 +37,15 @@ help:
 	@echo "  make gym-failures  Run failure-mode scenarios only"
 	@echo "  make gym-security  Run security scenarios only"
 	@echo "  make gym-agent     Start the gym agent (localhost:2024)"
+	@echo ""
+	@echo "Internal Dogfooding:"
+	@echo "  make dogfood-mcp            MCP server + contract slice"
+	@echo "  make dogfood-healing        Healing policy slice"
+	@echo "  make dogfood-snapshot-core  Snapshot/golden slice"
+	@echo "  make dogfood-check-core     Check/diff/root-cause slice"
+	@echo "  make dogfood-reporting      HTML/CLI reporting slice"
+	@echo "  make dogfood-agent-docs     Agent-docs slice (plus manual review)"
+	@echo "  make dogfood-core           Common core ship gate"
 	@echo ""
 
 # ============================================
@@ -193,3 +203,49 @@ dogfood-snapshot:
 ## Run the full dogfood suite including failure-detection tests (requires dogfood-agent)
 dogfood-run:
 	uv run evalview run dogfood/mock-agent-tests/
+
+## MCP slice — MCP server, contracts, and wrapper behavior
+dogfood-mcp:
+	uv run pytest -q tests/test_mcp_server.py tests/test_mcp_contracts.py
+
+## Healing slice — healing engine and model/runtime recovery behavior
+dogfood-healing:
+	uv run pytest -q tests/test_healing.py tests/test_model_runtime_detector.py
+
+## Snapshot slice — baseline creation, variants, and snapshot workflow
+dogfood-snapshot-core:
+	uv run pytest -q tests/test_snapshot_generated_workflow.py tests/test_e2e_snapshot_check.py tests/test_golden_store.py
+
+## Check slice — check command, diffing, root-cause, and tag-filter behavior
+dogfood-check-core:
+	uv run pytest -q tests/test_check_cmd.py tests/test_check_pipeline.py tests/test_root_cause.py tests/test_run_cmd_tags.py
+
+## Reporting slice — HTML reports, CI comments, and regression presentation
+dogfood-reporting:
+	uv run pytest -q tests/test_visualization_generators.py tests/test_ci_generate_comment.py
+
+## Agent docs slice — lightweight automated guard plus manual review of agent-facing docs
+dogfood-agent-docs:
+	uv run pytest -q tests/test_new_features.py
+	@echo ""
+	@echo "Manual review:"
+	@echo "  README.md"
+	@echo "  AGENT_INSTRUCTIONS.md"
+	@echo "  docs/agent-recipes/README.md"
+
+## Common internal ship gate for broad core changes
+dogfood-core:
+	uv run pytest -q \
+		tests/test_mcp_server.py \
+		tests/test_mcp_contracts.py \
+		tests/test_healing.py \
+		tests/test_model_runtime_detector.py \
+		tests/test_snapshot_generated_workflow.py \
+		tests/test_e2e_snapshot_check.py \
+		tests/test_golden_store.py \
+		tests/test_check_cmd.py \
+		tests/test_check_pipeline.py \
+		tests/test_root_cause.py \
+		tests/test_run_cmd_tags.py \
+		tests/test_visualization_generators.py \
+		tests/test_ci_generate_comment.py

@@ -117,6 +117,9 @@ Before shipping:
 - review the HTML or CLI diff output if behavior changed
 - only re-snapshot when the new behavior is intentional
 
+See `docs/INTERNAL_DOGFOODING.md` for the current lightweight slice definitions
+and feature-to-eval matrix used inside this repo.
+
 ### Bug-to-eval rule
 
 Every meaningful failure should become one of:

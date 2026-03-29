@@ -33,6 +33,7 @@ If you're new:
 | [YAML Test Case Schema](YAML_SCHEMA.md) | Complete schema for authoring test cases |
 | [Comparisons](COMPARISONS.md) | EvalView vs LangSmith, Langfuse, Braintrust, and DeepEval |
 | [Operating Model](OPERATING_MODEL.md) | How to run EvalView with frontier-lab rigor and startup-team practicality |
+| [Internal Dogfooding](INTERNAL_DOGFOODING.md) | The lightweight internal ship gate for EvalView itself |
 
 ## Core Concepts
 
