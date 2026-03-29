@@ -21,6 +21,8 @@
 
 Your agent can still return `200` and be wrong. A model or provider update can change tool choice, skip a clarification, or degrade output quality without changing your code or breaking a health check. **EvalView catches those silent regressions before users do.**
 
+**You don't need frontier-lab resources to run a serious agent regression loop.** EvalView gives solo devs, startups, and small AI teams the same core discipline: snapshot behavior, detect drift, classify changes, and review or heal them safely.
+
 **Traditional tests tell you if your agent is up. EvalView tells you if it still behaves correctly.** It tracks drift across outputs, tools, model IDs, and runtime fingerprints, so you can tell "the provider changed" from "my system regressed."
 
 [![demo.gif](assets/demo.gif)](https://github.com/user-attachments/assets/96d8b5f7-3561-44a1-86a4-270fb0d1d8a6)
@@ -35,8 +37,8 @@ Most eval tools stop at detect and compare. EvalView helps you classify changes,
 - Auto-heal flaky failures with retries, review gates, and audit logs
 
 Built for **frontier-lab rigor, startup-team practicality**:
-- behavior-first evals over benchmark theater
-- deterministic checks first, LLM judgment where it adds signal
+- targeted behavior runs instead of giant always-on eval suites
+- deterministic diffs first, LLM judgment where it adds signal
 - faster loops from change -> eval -> review -> ship
 
 [How we run EvalView with this operating model →](docs/OPERATING_MODEL.md)

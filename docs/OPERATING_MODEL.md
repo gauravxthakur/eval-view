@@ -202,10 +202,6 @@ EvalView should **not** assume frontier-lab resources.
 
 The positioning is:
 
-**Anthropic-style eval discipline for normal teams.**
-
-Or more concretely:
-
 **Frontier-lab rigor, startup-team practicality.**
 
 ## Practical Checklist

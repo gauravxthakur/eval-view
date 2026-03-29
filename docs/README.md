@@ -44,7 +44,6 @@ If you're new:
 | [Tool Categories](TOOL_CATEGORIES.md) | Match tools by intent instead of exact name |
 | [Suite Types](SUITE_TYPES.md) | Separate capability tests from regression tests |
 | [Behavior Coverage](BEHAVIOR_COVERAGE.md) | Track gaps in the behaviors you test |
-| [Operating Model](OPERATING_MODEL.md) | The build loop EvalView is designed to tighten |
 | [Cost Tracking](COST_TRACKING.md) | Understand token and dollar usage |
 | [Test Generation](TEST_GENERATION.md) | Generate a draft suite from an agent or logs |
 | [Trace Specification](TRACE_SPEC.md) | Execution trace format used across adapters |
