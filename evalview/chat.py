@@ -603,13 +603,29 @@ class ChatSession:
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + self.history
 
-        stream = await client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=0.7,
-            max_tokens=2000,
-            stream=True
-        )
+        # Newer OpenAI models require max_completion_tokens instead of max_tokens
+        is_gpt5 = self.model.startswith("gpt-5")
+        is_gpt4o = self.model.startswith("gpt-4o")
+        is_o_series = self.model.startswith("o1") or self.model.startswith("o3") or self.model.startswith("o4")
+        uses_max_completion_tokens = is_gpt5 or is_gpt4o or is_o_series
+
+        params: dict = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+        }
+
+        if is_gpt5:
+            params["temperature"] = 1
+        elif not is_o_series:
+            params["temperature"] = 0.7
+
+        if uses_max_completion_tokens:
+            params["max_completion_tokens"] = 2000
+        else:
+            params["max_tokens"] = 2000
+
+        stream = await client.chat.completions.create(**params)
         
         async for chunk in stream:
             if chunk.choices and chunk.choices[0].delta.content:
