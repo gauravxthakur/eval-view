@@ -9,7 +9,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import click
 
@@ -113,12 +113,12 @@ def _detect_spikes(
 def _build_notifiers(
     slack_webhook: Optional[str],
     discord_webhook: Optional[str],
-) -> List[tuple[str, Any]]:
+) -> List[Tuple[str, Any]]:
     """Build enabled webhook notifiers."""
     from evalview.core.discord_notifier import DiscordNotifier
     from evalview.core.slack_notifier import SlackNotifier
 
-    notifiers: List[tuple[str, Any]] = []
+    notifiers: List[Tuple[str, Any]] = []
     if slack_webhook:
         notifiers.append(("Slack", SlackNotifier(slack_webhook)))
     if discord_webhook:
@@ -450,22 +450,22 @@ def _run_monitor_dashboard(
             }
 
             if not currently_failing and previously_failing and notifiers:
-                for notifier in notifiers:
-                    asyncio.run(notifier[1].send_recovery_alert(len(diffs)))
+                for label, notifier in notifiers:
+                    asyncio.run(notifier.send_recovery_alert(len(diffs)))
                     alerts_sent += 1
 
             new_failures = currently_failing - previously_failing
             if new_failures and notifiers:
                 alert_diffs = [(n, d) for n, d in diffs if n in currently_failing]
                 analysis = _analyze_check_diffs(diffs)
-                for notifier in notifiers:
-                    asyncio.run(notifier[1].send_regression_alert(alert_diffs, analysis))
+                for label, notifier in notifiers:
+                    asyncio.run(notifier.send_regression_alert(alert_diffs, analysis))
                     alerts_sent += 1
 
             spike_alerts = _detect_spikes(results, golden_traces, cost_threshold, latency_threshold)
             if spike_alerts and notifiers:
-                for notifier in notifiers:
-                    asyncio.run(notifier[1].send_cost_latency_alert(spike_alerts))
+                for label, notifier in notifiers:
+                    asyncio.run(notifier.send_cost_latency_alert(spike_alerts))
                     alerts_sent += 1
 
             if history_path is not None:

@@ -32,12 +32,13 @@ Requirements:
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Callable, List, Optional
 
 import pytest
 
 from evalview.core.diff import DiffEngine, TraceDiff
 from evalview.core.golden import GoldenStore
+from evalview.compare import ModelResult, compare_models, run_eval, score
 
 logger = logging.getLogger(__name__)
 
@@ -167,3 +168,39 @@ def evalview_snapshot(evalview_golden_store: GoldenStore):
         return result
 
     return _snapshot
+
+
+# ---------------------------------------------------------------------------
+# Model comparison fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def evalview_run_eval():
+    """Fixture that exposes :func:`evalview.run_eval` for use in tests.
+
+    Identical to calling ``evalview.run_eval(...)`` directly, but as a fixture
+    so pytest can inject it and test output is automatically captured.
+
+    Example::
+
+        def test_my_agent(evalview_run_eval):
+            result = evalview_run_eval("claude-opus-4-6", query="What is 2+2?")
+            assert evalview.score(result) > 0.8
+    """
+    return run_eval
+
+
+@pytest.fixture
+def evalview_compare():
+    """Fixture that exposes :func:`evalview.compare_models`.
+
+    Example::
+
+        def test_all_models(evalview_compare):
+            results = evalview_compare(
+                query="Summarize: AI is changing software development.",
+                models=["claude-opus-4-6", "gpt-4o"],
+            )
+            assert all(r.passed for r in results)
+    """
+    return compare_models

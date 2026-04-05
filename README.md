@@ -448,6 +448,7 @@ New regressions trigger Slack alerts. Recoveries send all-clear. No spam on pers
 | **Multi-reference baselines** | Up to 5 variants for non-deterministic agents | [Docs](docs/GOLDEN_TRACES.md) |
 | **`forbidden_tools`** | Safety contracts — hard-fail on any violation | [Docs](docs/YAML_SCHEMA.md) |
 | **Watch mode** | `evalview watch` — re-run checks on file save, with dashboard | [Docs](#watch-mode) |
+| **Model comparison** | `run_eval` / `compare_models` — test one query across N models in parallel | [Docs](#model-comparison) |
 | **Python API** | `gate()` / `gate_async()` — programmatic regression checks | [Docs](#python-api) |
 | **PR comments + alerts** | Cost/latency spikes, model changes, collapsible diffs | [Docs](docs/CI_CD.md) |
 | **Terminal dashboard** | Scorecard, sparkline trends, confidence scoring | — |
@@ -470,6 +471,7 @@ New regressions trigger Slack alerts. Recoveries send all-clear. No spam on pers
 | **Verified cost tracking** | Per-test cost breakdown with model pricing rates | [Docs](docs/COST_TRACKING.md) |
 | **Judge model picker** | Choose GPT, Claude, Gemini, DeepSeek, or Ollama (free) | [Docs](docs/EVALUATION_METRICS.md) |
 | **Pytest plugin** | `evalview_check` fixture for standard pytest | [Docs](#pytest-plugin) |
+| **Model comparison** | `run_eval` / `compare_models` — parametrize tests across models, auto-detect provider | [Docs](#model-comparison) |
 | **GitHub Actions job summary** | Results visible in Actions UI, not just PR comments | [Docs](docs/CI_CD.md) |
 | **Git hooks** | Pre-push regression blocking, zero CI config | [Docs](docs/CI_CD.md) |
 | **LLM judge caching** | ~80% cost reduction in statistical mode | [Docs](docs/EVALUATION_METRICS.md) |
@@ -557,6 +559,71 @@ def test_weather_regression(evalview_check):
 pip install evalview    # Plugin registers automatically
 pytest                  # Runs alongside your existing tests
 ```
+
+## Model Comparison
+
+Test the same task across multiple models with one parametrized test. No config files — just a model name and a query.
+
+```python
+import pytest
+import evalview
+
+@pytest.mark.parametrize("model", ["claude-opus-4-6", "gpt-4o", "claude-sonnet-4-6"])
+def test_my_task(model):
+    result = evalview.run_eval(model, query="Summarize this contract in one sentence.")
+    assert evalview.score(result) > 0.8
+```
+
+Provider is auto-detected from the model name. Requires `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` depending on which models you use.
+
+**Score against expected output** — token-overlap similarity, no LLM judge needed:
+
+```python
+result = evalview.run_eval(
+    "gpt-4o",
+    query="What language is Python?",
+    expected="Python is a high-level interpreted language.",
+    threshold=0.4,
+)
+```
+
+**Custom scorer** — assert specific behavior:
+
+```python
+def has_json(output, expected):
+    import json, re
+    m = re.search(r"\{.*?\}", output, re.DOTALL)
+    try: return 1.0 if json.loads(m.group()) else 0.0
+    except: return 0.0
+
+result = evalview.run_eval("claude-opus-4-6", query="Return JSON: {name, age}", scorer=has_json)
+assert evalview.score(result) == 1.0
+```
+
+**Run all models in parallel and compare:**
+
+```python
+results = evalview.compare_models(
+    query="Explain quantum entanglement in one sentence.",
+    models=["claude-opus-4-6", "gpt-4o", "claude-sonnet-4-6"],
+)
+evalview.print_comparison_table(results)   # Rich table: score, latency, cost
+best = results[0]                          # sorted best-first
+```
+
+```
+┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━┓
+┃ Model              ┃ Score ┃  Latency ┃      Cost ┃ Pass? ┃
+┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━┩
+│ claude-opus-4-6    │  1.00 │    842ms │ $0.00312  │   ✓   │
+│ gpt-4o             │  1.00 │    631ms │ $0.00087  │   ✓   │
+│ claude-sonnet-4-6  │  1.00 │    514ms │ $0.00063  │   ✓   │
+└────────────────────┴───────┴──────────┴───────────┴───────┘
+```
+
+`ModelResult` fields: `.model`, `.output`, `.score`, `.latency_ms`, `.cost_usd`, `.passed`, `.error`
+
+[Full example →](examples/model_comparison_test.py)
 
 ## Claude Code (MCP)
 

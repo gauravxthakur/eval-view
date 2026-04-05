@@ -169,9 +169,63 @@ def _build_diff_json(d: Any) -> Optional[Dict[str, Any]]:
 
 async def _push_async(payload: Dict[str, Any], token: str) -> Optional[str]:
     """Push with 3 retries, exponential backoff. Returns dashboard URL or None."""
-    url = f"{CLOUD_API_URL}/results"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    return await _push_to_url(f"{CLOUD_API_URL}/results", payload, token)
 
+
+def push_comparison(results: Any, query: str, threshold: float = 0.8) -> Optional[str]:
+    """Push compare_models() results to EvalView Cloud. Best-effort, blocking.
+
+    Args:
+        results: List[ModelResult] returned by compare_models().
+        query: The query that was evaluated.
+        threshold: The pass/fail threshold used.
+
+    Returns:
+        Dashboard URL if successful, None otherwise.
+    """
+    token = _get_api_token()
+    if not token:
+        return None
+
+    try:
+        git = _get_git_context()
+        source = "ci" if os.environ.get("CI") else "cli"
+
+        sorted_results = sorted(results, key=lambda r: r.score, reverse=True)
+        best = sorted_results[0].model if sorted_results else None
+
+        payload = {
+            "query": query,
+            "models": [r.model for r in results],
+            "results": [
+                {
+                    "model": r.model,
+                    "output": (r.output or "")[:4096],
+                    "score": r.score,
+                    "latency_ms": r.latency_ms,
+                    "cost_usd": r.cost_usd,
+                    "passed": r.passed,
+                    "error": r.error,
+                    "metadata": r.metadata or {},
+                }
+                for r in results
+            ],
+            "best_model": best,
+            "threshold": threshold,
+            "source": source,
+            **git,
+        }
+
+        url = f"{CLOUD_API_URL}/comparisons"
+        return asyncio.run(_push_to_url(url, payload, token))
+    except Exception as e:
+        logger.debug("Cloud comparison push failed: %s", e)
+        return None
+
+
+async def _push_to_url(url: str, payload: Dict[str, Any], token: str) -> Optional[str]:
+    """Generic push with 3 retries, exponential backoff."""
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(timeout=15) as client:
