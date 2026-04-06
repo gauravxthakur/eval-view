@@ -1,0 +1,30 @@
+name: "refactor"
+description: "Refactor the messy p() function in messy.py for readability"
+
+adapter: opencode
+adapter_config:
+  model: ollama/gemma4:e4b   # swap to ollama/qwen3.5:9b or claude-sonnet-4-6 per run
+
+input:
+  query: >
+    Refactor the function p() in messy.py. It has poor naming, deeply nested conditionals,
+    and uses type() instead of isinstance(). Rewrite it to be clean and readable while
+    preserving the exact same behaviour: filter out None values, strip whitespace from
+    non-empty strings, and pass through all other types unchanged.
+  context:
+    cwd: demo/fixtures
+
+expected:
+  tools:
+    - read_file
+    - edit_file
+  output:
+    contains:
+      - "def "
+    not_contains:
+      - "cannot"
+      - "unable"
+
+thresholds:
+  min_score: 70
+  max_latency: 120000

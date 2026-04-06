@@ -26,6 +26,11 @@ def create_adapter(
 
         return MistralAdapter()
 
+    if adapter_type == "opencode":
+        from evalview.adapters.opencode_adapter import OpenCodeAdapter
+
+        return OpenCodeAdapter(timeout=timeout)
+
     from evalview.adapters.crewai_adapter import CrewAIAdapter
     from evalview.adapters.http_adapter import HTTPAdapter
     from evalview.adapters.langgraph_adapter import LangGraphAdapter

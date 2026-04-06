@@ -1,0 +1,29 @@
+name: "bug-fix"
+description: "Find and fix the off-by-one bug in find_max() in buggy.py"
+
+adapter: opencode
+adapter_config:
+  model: ollama/gemma4:e4b   # swap to ollama/qwen3.5:9b or claude-sonnet-4-6 per run
+
+input:
+  query: >
+    There is a bug in buggy.py. The find_max function uses range(1, len(numbers) - 1)
+    which means it never checks the last element. Fix the bug so the function correctly
+    returns the maximum value including the last element.
+  context:
+    cwd: demo/fixtures
+
+expected:
+  tools:
+    - read_file
+    - edit_file
+  output:
+    contains:
+      - "fixed"
+    not_contains:
+      - "cannot"
+      - "unable"
+
+thresholds:
+  min_score: 70
+  max_latency: 120000

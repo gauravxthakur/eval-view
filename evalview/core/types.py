@@ -287,7 +287,7 @@ class TestCase(BaseModel):
             return v
         allowed = {
             "http", "langgraph", "anthropic", "openai", "ollama", "crewai",
-            "tapescope", "openai-assistants", "streaming", "huggingface", "goose", "mcp", "cohere", "mistral",
+            "tapescope", "openai-assistants", "streaming", "huggingface", "goose", "mcp", "cohere", "mistral", "opencode",
         }
         if v not in allowed:
             raise ValueError(

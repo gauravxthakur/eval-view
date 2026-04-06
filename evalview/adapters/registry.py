@@ -270,6 +270,13 @@ class AdapterRegistry:
         except ImportError:
             logger.warning("OpenClawAdapter not available")
 
+        try:
+            from evalview.adapters.opencode_adapter import OpenCodeAdapter
+
+            cls.register("opencode", OpenCodeAdapter)
+        except ImportError:
+            logger.warning("OpenCodeAdapter not available")
+
         cls._initialized = True
 
     @classmethod

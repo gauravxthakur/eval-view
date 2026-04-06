@@ -7,6 +7,7 @@ import httpx
 
 from evalview.adapters.http_adapter import HTTPAdapter, AgentConnectionError
 from evalview.adapters.ollama_adapter import OllamaAdapter
+from evalview.adapters.opencode_adapter import OpenCodeAdapter
 from evalview.core.types import ExecutionTrace
 
 
@@ -585,3 +586,82 @@ class TestOllamaAdapter:
             result = await adapter.health_check()
 
             assert result is False
+
+
+class TestOpenCodeAdapter:
+    """Tests for OpenCodeAdapter NDJSON parsing."""
+
+    SAMPLE_NDJSON = "\n".join([
+        '{"type":"step_start","timestamp":1000,"sessionID":"ses_test123","part":{"type":"step-start"}}',
+        '{"type":"tool_use","timestamp":1001,"sessionID":"ses_test123","part":{"callID":"call_abc","tool":"read","state":{"status":"completed","input":{"filePath":"buggy.py"},"output":"def add(a,b): return a-b","time":{"start":1001000,"end":1001050}}}}',
+        '{"type":"step_finish","timestamp":1002,"sessionID":"ses_test123","part":{"type":"step-finish","reason":"tool-calls","cost":0,"tokens":{"total":100,"input":90,"output":10,"reasoning":0,"cache":{"read":0,"write":0}}}}',
+        '{"type":"tool_use","timestamp":1003,"sessionID":"ses_test123","part":{"callID":"call_def","tool":"edit","state":{"status":"completed","input":{"filePath":"buggy.py","oldString":"return a-b","newString":"return a+b"},"output":"Edit applied.","metadata":{"diff":"--- a/buggy.py\\n+++ b/buggy.py\\n-return a-b\\n+return a+b"},"time":{"start":1003000,"end":1003100}}}}',
+        '{"type":"step_finish","timestamp":1004,"sessionID":"ses_test123","part":{"type":"step-finish","reason":"tool-calls","cost":0,"tokens":{"total":200,"input":180,"output":20,"reasoning":0,"cache":{"read":0,"write":0}}}}',
+        '{"type":"text","timestamp":1005,"sessionID":"ses_test123","part":{"type":"text","text":"The bug has been fixed.","time":{"start":1005000,"end":1005010}}}',
+        '{"type":"step_finish","timestamp":1006,"sessionID":"ses_test123","part":{"type":"step-finish","reason":"stop","cost":0,"tokens":{"total":220,"input":195,"output":25,"reasoning":0,"cache":{"read":5,"write":0}}}}',
+    ])
+
+    def _make_adapter(self) -> OpenCodeAdapter:
+        return OpenCodeAdapter(model="ollama/gemma4:e4b", cwd="/tmp")
+
+    def test_parse_ndjson_steps(self):
+        adapter = self._make_adapter()
+        start = datetime.now()
+        trace = adapter._parse_ndjson(self.SAMPLE_NDJSON, 0, start, datetime.now())
+        assert isinstance(trace, ExecutionTrace)
+        assert len(trace.steps) == 2
+
+    def test_parse_ndjson_tool_names(self):
+        adapter = self._make_adapter()
+        trace = adapter._parse_ndjson(self.SAMPLE_NDJSON, 0, datetime.now(), datetime.now())
+        assert trace.steps[0].tool_name == "read_file"
+        assert trace.steps[1].tool_name == "edit_file"
+
+    def test_parse_ndjson_final_output(self):
+        adapter = self._make_adapter()
+        trace = adapter._parse_ndjson(self.SAMPLE_NDJSON, 0, datetime.now(), datetime.now())
+        assert trace.final_output == "The bug has been fixed."
+
+    def test_parse_ndjson_session_id(self):
+        adapter = self._make_adapter()
+        trace = adapter._parse_ndjson(self.SAMPLE_NDJSON, 0, datetime.now(), datetime.now())
+        assert trace.session_id == "ses_test123"
+
+    def test_parse_ndjson_tokens(self):
+        adapter = self._make_adapter()
+        trace = adapter._parse_ndjson(self.SAMPLE_NDJSON, 0, datetime.now(), datetime.now())
+        assert trace.metrics.total_tokens is not None
+        assert trace.metrics.total_tokens.input_tokens == 195
+        assert trace.metrics.total_tokens.output_tokens == 25
+        assert trace.metrics.total_tokens.cached_tokens == 5
+
+    def test_parse_ndjson_edit_diff_in_output(self):
+        adapter = self._make_adapter()
+        trace = adapter._parse_ndjson(self.SAMPLE_NDJSON, 0, datetime.now(), datetime.now())
+        assert "buggy.py" in trace.steps[1].output
+
+    def test_parse_ndjson_step_latency(self):
+        adapter = self._make_adapter()
+        trace = adapter._parse_ndjson(self.SAMPLE_NDJSON, 0, datetime.now(), datetime.now())
+        assert trace.steps[0].metrics.latency == 50.0
+        assert trace.steps[1].metrics.latency == 100.0
+
+    def test_parse_ndjson_tool_error(self):
+        ndjson = '{"type":"tool_use","timestamp":1,"sessionID":"ses_x","part":{"callID":"c1","tool":"read","state":{"status":"error","input":{"filePath":"x.py"},"error":"PermissionRejectedError"}}}'
+        adapter = self._make_adapter()
+        trace = adapter._parse_ndjson(ndjson, 0, datetime.now(), datetime.now())
+        assert len(trace.steps) == 1
+        assert trace.steps[0].success is False
+        assert trace.steps[0].error is not None
+
+    def test_parse_ndjson_fatal_error(self):
+        ndjson = '{"type":"error","sessionID":"ses_x","error":{"name":"UnknownError","data":{"message":"Model not found"}}}'
+        adapter = self._make_adapter()
+        trace = adapter._parse_ndjson(ndjson, 1, datetime.now(), datetime.now())
+        assert "Model not found" in trace.final_output
+
+    def test_requires_model(self):
+        import asyncio
+        adapter = OpenCodeAdapter()
+        with pytest.raises(ValueError, match="model"):
+            asyncio.get_event_loop().run_until_complete(adapter.execute("do something"))
