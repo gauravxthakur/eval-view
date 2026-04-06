@@ -1,0 +1,32 @@
+name: "bug-fix"
+description: "Fix off-by-one bug in find_max() — Claude Sonnet 4.6 (baseline)"
+
+adapter: opencode
+adapter_config:
+  model: anthropic/claude-sonnet-4-6
+  timeout: 120
+
+input:
+  query: >
+    There is a bug in buggy.py. The find_max function uses range(1, len(numbers) - 1)
+    which means it never checks the last element. Fix the bug so the function correctly
+    returns the maximum value including the last element. After fixing, run the file to
+    confirm it prints 9.
+  context:
+    cwd: demo/fixtures
+
+expected:
+  tools:
+    - read_file
+    - edit_file
+    - bash
+  output:
+    contains:
+      - "fixed"
+    not_contains:
+      - "cannot"
+      - "unable"
+
+thresholds:
+  min_score: 70
+  max_latency: 120000

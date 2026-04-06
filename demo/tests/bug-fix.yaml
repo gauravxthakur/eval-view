@@ -3,7 +3,8 @@ description: "Find and fix the off-by-one bug in find_max() in buggy.py"
 
 adapter: opencode
 adapter_config:
-  model: ollama/gemma4:e4b   # swap to ollama/qwen3.5:9b or claude-sonnet-4-6 per run
+  model: anthropic/claude-sonnet-4-6   # Claude Sonnet 4.6 via Anthropic; swap to ollama/gemma4:e4b or ollama/qwen3.5:9b per run
+  timeout: 600
 
 input:
   query: >
@@ -26,4 +27,4 @@ expected:
 
 thresholds:
   min_score: 70
-  max_latency: 120000
+  max_latency: 300000

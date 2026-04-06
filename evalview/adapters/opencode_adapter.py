@@ -27,6 +27,7 @@ import re
 import subprocess
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from evalview.adapters.base import AgentAdapter
@@ -122,7 +123,7 @@ class OpenCodeAdapter(AgentAdapter):
         if cwd:
             cwd = os.path.abspath(os.path.expanduser(cwd))
 
-        cmd = self._build_command(query, model, context)
+        cmd = self._build_command(query, model, context, cwd=cwd)
         logger.info("OpenCode command: %s (cwd=%s)", " ".join(cmd), cwd)
 
         start_time = datetime.now()
@@ -135,7 +136,7 @@ class OpenCodeAdapter(AgentAdapter):
                     text=True,
                     cwd=cwd,
                     timeout=self.timeout,
-                    env=os.environ.copy(),
+                    env=self._build_env(),
                 ),
             )
             end_time = datetime.now()
@@ -167,7 +168,7 @@ class OpenCodeAdapter(AgentAdapter):
     # ------------------------------------------------------------------
 
     def _build_command(
-        self, query: str, model: str, context: Dict[str, Any]
+        self, query: str, model: str, context: Dict[str, Any], cwd: Optional[str] = None
     ) -> List[str]:
         cmd = [
             self.opencode_path,
@@ -176,9 +177,32 @@ class OpenCodeAdapter(AgentAdapter):
             "--model", model,
             "--format", "json",
         ]
+        if cwd:
+            cmd.extend(["--dir", cwd])
         for f in context.get("files", []):
             cmd.extend(["-f", f])
         return cmd
+
+    # ------------------------------------------------------------------
+    # Environment
+    # ------------------------------------------------------------------
+
+    def _build_env(self) -> Dict[str, str]:
+        """Build subprocess environment, merging .env.local if present."""
+        env = os.environ.copy()
+        for candidate in [
+            Path(".env.local"),
+            Path(".env"),
+        ]:
+            if candidate.exists():
+                with open(candidate) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, _, v = line.partition("=")
+                            env.setdefault(k.strip(), v.strip())
+                break
+        return env
 
     # ------------------------------------------------------------------
     # NDJSON parsing

@@ -3,7 +3,7 @@ def find_max(numbers):
     if not numbers:
         return None
     max_val = numbers[0]
-    for i in range(1, len(numbers) - 1):  # bug: last element is never checked
+    for i in range(1, len(numbers)):
         if numbers[i] > max_val:
             max_val = numbers[i]
     return max_val

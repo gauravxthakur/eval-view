@@ -198,7 +198,7 @@ def get_test_adapter(
     Raises:
         ValueError: When neither a test-specific nor global adapter is available.
     """
-    API_ONLY_ADAPTERS = {"openai-assistants", "goose", "mistral"}
+    API_ONLY_ADAPTERS = {"openai-assistants", "goose", "mistral", "opencode"}
 
     test_adapter_type = test_case.adapter
     test_endpoint = test_case.endpoint
@@ -216,6 +216,17 @@ def get_test_adapter(
         if test_adapter_type == "crewai":
             merged_model = {**(model_config if isinstance(model_config, dict) else {}), **test_cfg}
             return build_adapter(test_adapter_type, test_endpoint, test_cfg, merged_model, verbose, allow_private_urls)
+
+        # opencode pulls cwd and model from the test's input context + adapter_config
+        if test_adapter_type == "opencode":
+            from evalview.adapters.opencode_adapter import OpenCodeAdapter
+
+            ctx = test_case.input.context or {}
+            return OpenCodeAdapter(
+                timeout=test_cfg.get("timeout", 300.0),
+                model=test_cfg.get("model"),
+                cwd=ctx.get("cwd"),
+            )
 
         # goose pulls cwd/extensions from the test's input context
         if test_adapter_type == "goose":

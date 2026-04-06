@@ -88,7 +88,7 @@ def _display_no_agent_guide(endpoint: Optional[str] = None) -> None:
 )
 @click.option(
     "--adapter",
-    type=click.Choice(["http", "langgraph", "crewai", "anthropic", "openai-assistants", "tapescope", "huggingface", "goose", "ollama", "mcp", "cohere", "mistral"]),
+    type=click.Choice(["http", "langgraph", "crewai", "anthropic", "openai-assistants", "tapescope", "huggingface", "goose", "ollama", "mcp", "cohere", "mistral", "opencode"]),
     help="Override adapter type (e.g., goose, langgraph, mcp). Overrides config file.",
 )
 @click.option("--diff", is_flag=True, help="Compare against golden baselines. Shows REGRESSION/TOOLS_CHANGED/OUTPUT_CHANGED/PASSED status.")
@@ -266,8 +266,21 @@ async def _run_async(
 
     # ── Connectivity check ────────────────────────────────────────────────────
     ec_adapter = (adapter_override or early_config.get("adapter", "http")).lower()
-    no_http_adapters = {"openai-assistants", "anthropic", "ollama", "goose", "cohere", "mistral"}
+    no_http_adapters = {"openai-assistants", "anthropic", "ollama", "goose", "cohere", "mistral", "opencode"}
     ec_endpoint = early_config.get("endpoint") if ec_adapter not in no_http_adapters else None
+
+    # Skip connectivity check when all test files in the path use non-HTTP adapters
+    if ec_endpoint and path:
+        try:
+            _p = Path(path)
+            _yamls = list(_p.glob("*.yaml")) if _p.is_dir() else [_p] if _p.suffix == ".yaml" else []
+            if _yamls and all(
+                (yaml.safe_load(f.read_text()) or {}).get("adapter", "http") in no_http_adapters
+                for f in _yamls
+            ):
+                ec_endpoint = None
+        except Exception:
+            pass
 
     if ec_endpoint and ec_adapter not in no_http_adapters:
         import socket as _socket

@@ -1,0 +1,33 @@
+name: "refactor"
+description: "Refactor p() in messy.py for readability — Qwen3 Coder 30B (local)"
+
+adapter: opencode
+adapter_config:
+  model: ollama/qwen3-coder:30b
+  timeout: 360
+
+input:
+  query: >
+    Refactor the function p() in messy.py. It has poor naming, deeply nested conditionals,
+    and uses type() instead of isinstance(). Rewrite it to be clean and readable while
+    preserving the exact same behaviour: filter out None values, strip whitespace from
+    non-empty strings, and pass through all other types unchanged. Then run the file to
+    confirm it still prints {'name': 'Alice', 'age': 30}.
+  context:
+    cwd: demo/fixtures
+
+expected:
+  tools:
+    - read_file
+    - edit_file
+    - bash
+  output:
+    contains:
+      - "def "
+    not_contains:
+      - "cannot"
+      - "unable"
+
+thresholds:
+  min_score: 70
+  max_latency: 360000

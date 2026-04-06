@@ -1,0 +1,31 @@
+name: "implement"
+description: "Implement group_by_key() from stub — Gemma 4 27B (local)"
+
+adapter: opencode
+adapter_config:
+  model: ollama/gemma4:26b
+  timeout: 360
+
+input:
+  query: >
+    Implement the group_by_key() function in stub.py. The docstring and type signature
+    are already there — the body is just pass. Implement it, then run the __main__ block
+    to verify it prints the correctly grouped output.
+  context:
+    cwd: demo/fixtures
+
+expected:
+  tools:
+    - read_file
+    - edit_file
+    - bash
+  output:
+    contains:
+      - "implement"
+    not_contains:
+      - "cannot"
+      - "unable"
+
+thresholds:
+  min_score: 70
+  max_latency: 360000

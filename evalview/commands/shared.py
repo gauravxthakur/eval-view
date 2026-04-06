@@ -459,6 +459,41 @@ def _load_config_if_exists() -> Optional["EvalViewConfig"]:
     return None
 
 
+def _build_adapter_for_tc(
+    tc: Any,
+    config: Optional[Any],
+    timeout: float,
+) -> Optional[Any]:
+    """Build the right adapter for a test case, handling both HTTP and non-HTTP adapters.
+
+    Returns the adapter, or None if the test should be skipped (missing config).
+    Raises ValueError for invalid config that should be surfaced to the user.
+    """
+    adapter_type = tc.adapter or (config.adapter if config else None)
+    endpoint = tc.endpoint or (config.endpoint if config else None)
+
+    # These adapters have their own auth/model and don't need an HTTP endpoint
+    _no_endpoint_adapters = {"opencode", "goose", "openai-assistants", "mistral", "cohere"}
+    needs_endpoint = adapter_type not in _no_endpoint_adapters if adapter_type else True
+
+    if not adapter_type or (needs_endpoint and not endpoint):
+        return None
+
+    allow_private = getattr(config, "allow_private_urls", True) if config else True
+
+    if adapter_type == "opencode":
+        from evalview.adapters.opencode_adapter import OpenCodeAdapter
+        test_cfg: dict = tc.adapter_config or {}
+        ctx = tc.input.context or {}
+        return OpenCodeAdapter(
+            timeout=test_cfg.get("timeout", timeout),
+            model=test_cfg.get("model"),
+            cwd=ctx.get("cwd"),
+        )
+
+    return _create_adapter(adapter_type, endpoint or "", timeout=timeout, allow_private_urls=allow_private)
+
+
 def _execute_snapshot_tests(
     test_cases: List["TestCase"],
     config: Optional["EvalViewConfig"],
@@ -471,18 +506,13 @@ def _execute_snapshot_tests(
     evaluator = Evaluator()
 
     async def _run_one(tc: "TestCase") -> Optional["EvaluationResult"]:
-        adapter_type = tc.adapter or (config.adapter if config else None)
-        endpoint = tc.endpoint or (config.endpoint if config else None)
-
-        if not adapter_type or not endpoint:
-            console.print(f"[yellow]⚠ Skipping {tc.name}: No adapter/endpoint configured[/yellow]")
-            return None
-
-        allow_private = getattr(config, "allow_private_urls", True) if config else True
         try:
-            adapter = _create_adapter(adapter_type, endpoint, timeout=timeout, allow_private_urls=allow_private)
+            adapter = _build_adapter_for_tc(tc, config, timeout)
         except ValueError as e:
             console.print(f"[yellow]⚠ Skipping {tc.name}: {e}[/yellow]")
+            return None
+        if adapter is None:
+            console.print(f"[yellow]⚠ Skipping {tc.name}: No adapter/endpoint configured[/yellow]")
             return None
 
         if tc.is_multi_turn:
@@ -586,17 +616,13 @@ def _execute_check_tests(
         # Sequential execution with budget checking after each test
         async def _run_one_sequential(tc: "TestCase") -> Optional[Tuple["EvaluationResult", "TraceDiff", "GoldenTrace"]]:
             """Run a single test: execute -> evaluate -> diff (async pipeline)."""
-            adapter_type = tc.adapter or (config.adapter if config else None)
-            endpoint = tc.endpoint or (config.endpoint if config else None)
-            if not adapter_type or not endpoint:
-                return None
-
-            allow_private = getattr(config, "allow_private_urls", True) if config else True
             try:
-                adapter = _create_adapter(adapter_type, endpoint, timeout=timeout, allow_private_urls=allow_private)
+                adapter = _build_adapter_for_tc(tc, config, timeout)
             except ValueError as e:
                 if not json_output:
                     console.print(f"[yellow]⚠ Skipping {tc.name}: {e}[/yellow]")
+                return None
+            if adapter is None:
                 return None
 
             if tc.is_multi_turn:
@@ -657,17 +683,13 @@ def _execute_check_tests(
         # Original concurrent execution (no budget tracking)
         async def _run_one(tc: "TestCase") -> Optional[Tuple["EvaluationResult", "TraceDiff", "GoldenTrace"]]:
             """Run a single test: execute -> evaluate -> diff (async pipeline)."""
-            adapter_type = tc.adapter or (config.adapter if config else None)
-            endpoint = tc.endpoint or (config.endpoint if config else None)
-            if not adapter_type or not endpoint:
-                return None
-
-            allow_private = getattr(config, "allow_private_urls", True) if config else True
             try:
-                adapter = _create_adapter(adapter_type, endpoint, timeout=timeout, allow_private_urls=allow_private)
+                adapter = _build_adapter_for_tc(tc, config, timeout)
             except ValueError as e:
                 if not json_output:
                     console.print(f"[yellow]⚠ Skipping {tc.name}: {e}[/yellow]")
+                return None
+            if adapter is None:
                 return None
 
             if tc.is_multi_turn:
