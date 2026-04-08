@@ -498,12 +498,13 @@ def _execute_snapshot_tests(
     test_cases: List["TestCase"],
     config: Optional["EvalViewConfig"],
     timeout: float = 30.0,
+    skip_llm_judge: bool = False,
 ) -> List["EvaluationResult"]:
     """Execute tests and evaluate results for snapshot/benchmark commands."""
     from evalview.evaluators.evaluator import Evaluator
 
     results = []
-    evaluator = Evaluator()
+    evaluator = Evaluator(skip_llm_judge=skip_llm_judge)
 
     async def _run_one(tc: "TestCase") -> Optional["EvaluationResult"]:
         try:

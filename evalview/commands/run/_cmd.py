@@ -107,6 +107,7 @@ def _display_no_agent_guide(endpoint: Optional[str] = None) -> None:
 @click.option("--judge-cache/--no-judge-cache", default=True, help="Cache LLM judge responses (enabled by default). Use --no-judge-cache to disable.")
 @click.option("--no-open", is_flag=True, default=False, help="Do not auto-open the HTML report in the browser after the run. Implied when CI=true.")
 @click.option("--budget", type=float, default=None, help="Maximum total budget in dollars. Stops execution if exceeded.")
+@click.option("--timeout", "timeout_override", type=float, default=None, help="Override adapter timeout in seconds (e.g. --timeout 120). Overrides config file setting.")
 @click.option("--dry-run", "dry_run", is_flag=True, default=False, help="Preview test plan and estimate cost without executing. No API calls made.")
 @track_command("run", lambda **kw: {"adapter": kw.get("adapter") or "auto", "has_path": bool(kw.get("path"))})
 def run(
@@ -147,6 +148,7 @@ def run(
     judge_cache: bool,
     no_open: bool,
     budget: Optional[float],
+    timeout_override: Optional[float],
     dry_run: bool,
 ) -> None:
     """Run test cases against the agent.
@@ -178,7 +180,7 @@ def run(
         trace=trace, trace_out=trace_out, runs=runs, pass_rate=pass_rate,
         difficulty_filter=difficulty, contracts=contracts, save_golden=save_golden,
         no_judge=no_judge, judge_cache=judge_cache, no_open=no_open,
-        budget=budget, dry_run=dry_run,
+        budget=budget, timeout_override=timeout_override, dry_run=dry_run,
     ))
 
 
@@ -220,6 +222,7 @@ async def _run_async(
     judge_cache: bool = True,
     no_open: bool = False,
     budget: Optional[float] = None,
+    timeout_override: Optional[float] = None,
     dry_run: bool = False,
 ) -> None:
     """Async implementation of the run command."""
@@ -266,7 +269,7 @@ async def _run_async(
 
     # ── Connectivity check ────────────────────────────────────────────────────
     ec_adapter = (adapter_override or early_config.get("adapter", "http")).lower()
-    no_http_adapters = {"openai-assistants", "anthropic", "ollama", "goose", "cohere", "mistral", "opencode"}
+    no_http_adapters = {"openai-assistants", "anthropic", "ollama", "goose", "cohere", "mistral", "opencode", "langgraph"}
     ec_endpoint = early_config.get("endpoint") if ec_adapter not in no_http_adapters else None
 
     # Skip connectivity check when all test files in the path use non-HTTP adapters
@@ -437,6 +440,9 @@ async def _run_async(
             config = yaml.safe_load(f) or {}
     elif verbose:
         console.print("[dim]No config file found - will use test case adapter/endpoint if available[/dim]")
+
+    if timeout_override is not None:
+        config["timeout"] = timeout_override
 
     run_endpoint = config.get("endpoint", "")
     run_adapter_type = config.get("adapter", "http")

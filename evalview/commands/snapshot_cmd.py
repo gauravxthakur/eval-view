@@ -186,11 +186,12 @@ def _group_tests_by_target(test_cases: List, config) -> Dict[tuple[str, str], li
 @click.option("--approve-generated", is_flag=True, help="Approve generated draft tests before snapshotting them.")
 @click.option("--reset", is_flag=True, help="Delete all existing baselines before capturing new ones.")
 @click.option("--judge", "judge_model", default=None, help="Judge model for scoring (e.g. gpt-5.4-mini, sonnet, deepseek-chat).")
+@click.option("--no-judge", "no_judge", is_flag=True, default=False, help="Skip LLM-as-judge evaluation. Uses deterministic scoring only (scores capped at 75). No API key required.")
 @click.option("--timeout", default=30.0, type=float, help="Timeout in seconds per test (default: 30).")
 @click.option("--preview", is_flag=True, help="Show what would change without saving. Dry-run mode for snapshot.")
 @track_command("snapshot")
 @click.pass_context
-def snapshot(ctx: click.Context, test_path: str, notes: str, test: str, variant: str, approve_generated: bool, reset: bool, judge_model: Optional[str], timeout: float, preview: bool):
+def snapshot(ctx: click.Context, test_path: str, notes: str, test: str, variant: str, approve_generated: bool, reset: bool, judge_model: Optional[str], no_judge: bool, timeout: float, preview: bool):
     """Run tests and snapshot passing results as baseline.
 
     This is the simple workflow: snapshot → check → fix → snapshot.
@@ -307,7 +308,7 @@ def snapshot(ctx: click.Context, test_path: str, notes: str, test: str, variant:
     # Execute tests with spinner
     from evalview.commands.shared import run_with_spinner
     results = run_with_spinner(
-        lambda: _execute_snapshot_tests(test_cases, config, timeout=timeout),
+        lambda: _execute_snapshot_tests(test_cases, config, timeout=timeout, skip_llm_judge=no_judge),
         "Snapshotting",
         len(test_cases),
     )

@@ -264,9 +264,10 @@ def _print_baseline_context(goldens: List[Any], state: Any) -> None:
 @click.option("--statistical", "statistical_runs", type=int, default=None, help="Run each test N times for variance analysis (e.g. --statistical 10).")
 @click.option("--auto-variant", "auto_variant", is_flag=True, default=False, help="Auto-discover and save distinct execution paths as golden variants (use with --statistical).")
 @click.option("--judge", "judge_model", default=None, help="Judge model for scoring (e.g. gpt-5.4-mini, sonnet, deepseek-chat).")
+@click.option("--no-judge", "no_judge", is_flag=True, default=False, help="Skip LLM-as-judge evaluation. Uses deterministic scoring only (scores capped at 75). No API key required.")
 @click.option("--heal", "heal_mode", is_flag=True, default=False, help="Auto-retry flaky failures, propose candidate variants. Never touches forbidden tools.")
 @track_command("check")
-def check(test_path: str, test: str, tags: tuple[str, ...], json_output: bool, fail_on: str, strict: bool, report_path: Optional[str], csv_path: Optional[str], semantic_diff: Optional[bool], budget: Optional[float], timeout: float, dry_run: bool, ai_root_cause: bool, statistical_runs: Optional[int], auto_variant: bool, judge_model: Optional[str], heal_mode: bool):
+def check(test_path: str, test: str, tags: tuple[str, ...], json_output: bool, fail_on: str, strict: bool, report_path: Optional[str], csv_path: Optional[str], semantic_diff: Optional[bool], budget: Optional[float], timeout: float, dry_run: bool, ai_root_cause: bool, statistical_runs: Optional[int], auto_variant: bool, judge_model: Optional[str], no_judge: bool, heal_mode: bool):
     """Check current behavior against snapshot baseline.
 
     This command runs tests and compares them against your saved baselines,
@@ -469,7 +470,7 @@ def check(test_path: str, test: str, tags: tuple[str, ...], json_output: bool, f
 
             run_diffs, run_results, _, _ = _execute_check_tests(
                 test_cases, config, json_output=True, semantic_diff=semantic_diff, timeout=timeout,
-                budget_tracker=budget_tracker,
+                skip_llm_judge=no_judge, budget_tracker=budget_tracker,
             )
 
             for result in run_results:
@@ -536,13 +537,13 @@ def check(test_path: str, test: str, tags: tuple[str, ...], json_output: bool, f
     if not json_output:
         from evalview.commands.shared import run_with_spinner
         diffs, results, drift_tracker, golden_traces = run_with_spinner(
-            lambda: _execute_check_tests(test_cases, config, json_output, semantic_diff, timeout, budget_tracker=budget_tracker),
+            lambda: _execute_check_tests(test_cases, config, json_output, semantic_diff, timeout, skip_llm_judge=no_judge, budget_tracker=budget_tracker),
             "Checking",
             len(test_cases),
         )
     else:
         diffs, results, drift_tracker, golden_traces = _execute_check_tests(
-            test_cases, config, json_output, semantic_diff, timeout, budget_tracker=budget_tracker
+            test_cases, config, json_output, semantic_diff, timeout, skip_llm_judge=no_judge, budget_tracker=budget_tracker
         )
 
     golden_names = {golden.test_name for golden in goldens}
