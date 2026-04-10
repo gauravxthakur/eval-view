@@ -56,6 +56,27 @@ class ScoreResult:
 # --------------------------------------------------------------------------- #
 
 
+def _extract_first_json_object(text: str) -> Optional[str]:
+    """Find the first complete top-level JSON object via bracket counting.
+
+    Returns the substring ``text[start:end]`` of the first balanced ``{...}``
+    block, or ``None`` if no such block exists. Handles arbitrarily nested
+    JSON without false-positives from greedy regex matching.
+    """
+    depth = 0
+    start: Optional[int] = None
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}" and depth > 0:
+            depth -= 1
+            if depth == 0 and start is not None:
+                return text[start : i + 1]
+    return None
+
+
 # Snake_case identifier pattern. Tool names overwhelmingly use this shape
 # (lookup_order, get_weather, process_refund). Used by score_tool_choice
 # to find "the first tool-like word" the model mentioned.
@@ -145,13 +166,14 @@ def score_json_schema(response: str, schema: Dict[str, Any]) -> ScoreResult:
     except json.JSONDecodeError:
         pass
 
-    # Fallback: extract the first top-level {...} block. Non-greedy; we
-    # deliberately do not try to handle deeply nested or multi-object outputs
-    # here because that invites false positives in drift comparisons.
-    match = re.search(r"\{.*\}", stripped, re.DOTALL)
-    if match:
+    # Fallback: extract the first complete top-level {...} block via bracket
+    # counting. A greedy regex (r"\{.*\}" + re.DOTALL) would grab from the
+    # FIRST brace to the LAST, failing when the model outputs multiple JSON
+    # objects or wraps JSON in trailing prose.
+    extracted = _extract_first_json_object(stripped)
+    if extracted:
         try:
-            candidates.append(json.loads(match.group(0)))
+            candidates.append(json.loads(extracted))
         except json.JSONDecodeError:
             pass
 

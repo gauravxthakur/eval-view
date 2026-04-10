@@ -66,19 +66,16 @@ evalview check       # Catch regressions after every change
 
 That's it. Three commands to regression-test any AI agent. `init` auto-detects your agent type (chat, tool-use, multi-step, RAG, coding) and configures the right evaluators, thresholds, and assertions.
 
-### Catch silent drift in closed models (Claude today, GPT in v1.1)
+### Catch silent drift in closed models
 
-Worried that `claude-opus-4-5` might behave differently next week without warning? `evalview model-check` runs a small, fixed canary suite directly against the provider and tells you when the model itself has drifted — no agent required, no LLM judge, no calibration.
+Worried that `claude-opus-4-5` might behave differently next week without warning? [`evalview model-check`](#model-drift-detection) runs a zero-judge canary suite directly against the provider and tells you exactly when the model has drifted — no agent required, no calibration.
 
 ```bash
-# First run saves a baseline snapshot
-evalview model-check --model claude-opus-4-5-20251101
-
-# A week later detects drift against that baseline
-evalview model-check --model claude-opus-4-5-20251101
+evalview model-check --model claude-opus-4-5-20251101   # first run saves baseline
+evalview model-check --model claude-opus-4-5-20251101   # next week, detects any change
 ```
 
-Uses structural checks only (tool choice, JSON schema, refusal, exact match), so the drift signal is real and not judge noise. Ships with a bundled 15-prompt canary; bring your own suite with `--suite`. v1 supports Anthropic; OpenAI/Mistral/Cohere land in v1.1. See [docs/MODEL_CHECK.md](docs/MODEL_CHECK.md).
+[See the full model-check section →](#model-drift-detection)
 
 <details>
 <summary><strong>Other install methods</strong></summary>
@@ -448,10 +445,67 @@ New regressions trigger Slack alerts. Recoveries send all-clear. No spam on pers
 
 [Monitor config options →](docs/CLI_REFERENCE.md)
 
+## Model Drift Detection
+
+Closed models update silently. `evalview model-check` is a dedicated command that runs a fixed structural canary suite directly against the provider and tells you when the model itself has changed — no agent, no LLM judge, no calibration required.
+
+```bash
+# Save a baseline snapshot the day you deploy
+evalview model-check --model claude-opus-4-5-20251101
+
+# Run it weekly — detects any behavioral change against that baseline
+evalview model-check --model claude-opus-4-5-20251101
+```
+
+**Example output when drift is detected:**
+
+```
+EvalView model-check
+  Model:        claude-opus-4-5-20251101
+  Provider:     anthropic
+  Suite:        canary v1.public (15 prompts, sha256:6b8e925a5543…)
+  Runs/prompt:  1
+  Temperature:  0.0
+  Cost:         $0.0228
+
+vs reference (2026-04-10, 7d ago)
+  Drift:      MODEL (MEDIUM confidence)
+  Pass rate:  15/15 → 13/15 (-13.3%)
+  Flipped:    tool_choice_refund_first_step, json_schema_order_summary
+
+vs previous (2026-04-17, 0d ago)
+  Drift:      NONE
+  Pass rate:  13/15 → 13/15 (+0.0%)
+```
+
+**How it works:**
+
+| Check type | What it catches |
+|------------|-----------------|
+| **Tool choice** | Did the model pick the right tool, in the right order? |
+| **JSON schema** | Does the output still match the expected structure? |
+| **Refusal** | Did the model refuse when it should (or comply when it should)? |
+| **Exact match** | Does the response match a regex anchor? |
+
+Every check runs at `temperature=0` for determinism. Drift is classified as **NONE / WEAK / MEDIUM / STRONG** based on how many prompts flipped pass↔fail. No judge — the signal is structural, not probabilistic.
+
+```bash
+evalview model-check --model claude-opus-4-5-20251101 --dry-run      # Cost estimate before running
+evalview model-check --model claude-opus-4-5-20251101 --pin           # Pin this run as the new reference
+evalview model-check --model claude-opus-4-5-20251101 --reset-reference  # Start a fresh baseline
+evalview model-check --model claude-opus-4-5-20251101 --json          # Machine-readable output for CI
+evalview model-check --model claude-opus-4-5-20251101 --suite my-canary.yaml  # Bring your own suite
+```
+
+Ships with a **bundled 15-prompt public canary** covering tool selection, JSON schema, refusal behavior, and exact match. Add your own prompts with `--suite`. v1 supports **Anthropic**; OpenAI/Mistral/Cohere land in v1.1.
+
+[Full reference → docs/MODEL_CHECK.md](docs/MODEL_CHECK.md)
+
 ## Key Features
 
 | Feature | Description | Docs |
 |---------|-------------|------|
+| **Model drift detection** | `model-check` — zero-judge canary suite that catches silent model updates | [Docs](#model-drift-detection) |
 | **Assertion wizard** | Analyze captured traffic, suggest smart assertions automatically | [Above](#assertion-wizard--tests-from-real-traffic) |
 | **Auto-variant discovery** | Run N times, cluster paths, save valid variants | [Above](#auto-variant-discovery--solve-non-determinism) |
 | **Auto-heal** | Retry flakes, propose variants, escalate structural changes | [Above](#auto-heal--fix-flakes-without-leaving-ci) |

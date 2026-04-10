@@ -376,6 +376,7 @@ def _classify(current: ModelSnapshot, other: Optional[ModelSnapshot]) -> _Classi
         and fp_other is not None
         and fp_now != fp_other
         and current.metadata.fingerprint_confidence == "strong"
+        and other.metadata.fingerprint_confidence == "strong"
     )
 
     if fingerprint_changed:
@@ -696,7 +697,7 @@ def model_check(
             f"[yellow]Budget exhausted after {exc.completed}/{exc.total} prompts. "
             f"Spent ${exc.spent:.4f} of ${exc.limit:.2f} budget.[/yellow]"
         )
-        sys.exit(EXIT_DRIFT_DETECTED)
+        sys.exit(EXIT_USAGE_ERROR)
     except click.UsageError:
         raise
     except Exception as exc:  # pragma: no cover - unexpected runtime failure
@@ -766,7 +767,7 @@ def model_check(
         )
         click.echo(json.dumps(payload, indent=2, default=str))
     else:
-        _render_header(snapshot, suite, estimated_cost)
+        _render_header(snapshot, suite, outcome.total_cost_usd)
         _render_comparison("vs reference", vs_reference, reference, snapshot)
         _render_comparison("vs previous", vs_previous, previous, snapshot)
         _render_next_steps(
@@ -778,15 +779,18 @@ def model_check(
         )
 
     if out_path is not None:
-        out_path.write_text(
-            json.dumps(
-                _build_json_payload(
-                    snapshot, suite, vs_reference, vs_previous, reference, previous
-                ),
-                indent=2,
-                default=str,
+        try:
+            out_path.write_text(
+                json.dumps(
+                    _build_json_payload(
+                        snapshot, suite, vs_reference, vs_previous, reference, previous
+                    ),
+                    indent=2,
+                    default=str,
+                )
             )
-        )
+        except OSError as exc:
+            console.print(f"[red]Failed to write --out file {out_path}:[/red] {exc}")
 
     # --- Exit code -------------------------------------------------------
     has_any_drift = (
