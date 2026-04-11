@@ -27,7 +27,7 @@ def quarantine_add(test_name: str, reason: str):
     console.print(f"[green]Quarantined:[/green] {test_name}")
     if reason:
         console.print(f"  [dim]Reason: {reason}[/dim]")
-    console.print(f"  [dim]This test will still run but won't block CI.[/dim]")
+    console.print(f"  [dim]This test will still run and report, but failures won't block deployment.[/dim]")
 
 
 @quarantine.command("remove")
@@ -37,7 +37,7 @@ def quarantine_remove(test_name: str):
     store = QuarantineStore()
     if store.remove(test_name):
         console.print(f"[green]Removed from quarantine:[/green] {test_name}")
-        console.print(f"  [dim]Failures will now block CI again.[/dim]")
+        console.print(f"  [dim]This test will now block deployment if it fails.[/dim]")
     else:
         console.print(f"[yellow]Not quarantined:[/yellow] {test_name}")
 
@@ -55,5 +55,7 @@ def quarantine_list():
         console.print(f"  [yellow]⏸[/yellow] {e.test_name}")
         if e.reason:
             console.print(f"    [dim]Reason: {e.reason}[/dim]")
+        if e.flaky_count > 0:
+            console.print(f"    [dim]Classified as flaky: {e.flaky_count} time(s)[/dim]")
         if e.added_at:
             console.print(f"    [dim]Added: {e.added_at}[/dim]")

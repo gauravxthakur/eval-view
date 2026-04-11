@@ -97,5 +97,24 @@ class QuarantineStore:
     def is_quarantined(self, test_name: str) -> bool:
         return test_name in self.entries
 
+    def increment_flaky(self, test_name: str) -> int:
+        """Record that a test was classified as flaky. Returns new count."""
+        if test_name not in self.entries:
+            # Track flaky count even for non-quarantined tests
+            self.entries[test_name] = QuarantineEntry(
+                test_name=test_name,
+                added_at=datetime.now(timezone.utc).isoformat(),
+            )
+        self.entries[test_name].flaky_count += 1
+        self._save()
+        return self.entries[test_name].flaky_count
+
+    def should_quarantine(self, test_name: str, threshold: int = 3) -> bool:
+        """Returns True if a test has been flaky enough times to quarantine."""
+        entry = self.entries.get(test_name)
+        if not entry:
+            return False
+        return entry.flaky_count >= threshold and not entry.reason
+
     def list_all(self) -> List[QuarantineEntry]:
         return list(self.entries.values())

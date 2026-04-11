@@ -626,10 +626,8 @@ def _display_check_results(
                     # Fall through to show details below
 
                 if not heal_result:
-                    # Check if quarantined
-                    from evalview.core.quarantine import QuarantineStore
-                    _quarantine_store = QuarantineStore()
-                    _is_quarantined = _quarantine_store.is_quarantined(name)
+                    # Check if quarantined (uses _q loaded above in scorecard section)
+                    _is_quarantined = _q.is_quarantined(name)
 
                     if _is_quarantined:
                         severity_icon = "[dim]⏸ QUARANTINED[/dim]"
@@ -714,6 +712,16 @@ def _display_check_results(
                 recs = recommend_from_trace_diff(diff)
                 if recs:
                     _print_recommendations(recs)
+
+                # Track flaky tests and suggest quarantine
+                if diff.output_diff and diff.output_diff.similarity and diff.output_diff.similarity > 0.9 and abs(diff.score_diff) < 3:
+                    count = _q.increment_flaky(name)
+                    if _q.should_quarantine(name) and not _q.is_quarantined(name):
+                        quoted_q = f'"{name}"' if " " in name else name
+                        console.print(
+                            f"    [yellow]💡 This test has been flaky {count} times. "
+                            f"Consider: [bold]evalview quarantine add {quoted_q}[/bold][/yellow]"
+                        )
 
                 quoted = f'"{name}"' if " " in name else name
                 console.print(f"    [dim]\u2192 evalview replay {quoted}[/dim]")
