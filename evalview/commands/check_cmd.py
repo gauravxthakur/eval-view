@@ -214,25 +214,37 @@ def _compute_verdict_payload(
         quarantined = []
         stale_quarantined = []
 
-    # Drift signal: count how many tests show a downward trend. We don't
-    # short-circuit — knowing "3 of 12 tests drifting" is more useful than
-    # "one test drifted, don't care about the rest."
-    drift_warnings = 0
+    # Drift signal: use the graded classify_drift() tier per test.
+    # Count how many tests land in each tier so the PR comment / verdict
+    # reason can say "3 of 12 tests drifting, 1 with high confidence"
+    # instead of the earlier boolean "something is drifting, maybe".
+    drift_counts: Dict[str, int] = {
+        "high": 0, "medium": 0, "low": 0, "stable": 0, "insufficient_history": 0,
+    }
+    drift_warnings = 0  # tests in low/medium/high
     drift_confidence: Optional[str] = None
     drift_is_downward = False
     if drift_tracker is not None:
         for name, _ in diffs:
             try:
-                warning = drift_tracker.detect_gradual_drift(name)
+                tier, _slope = drift_tracker.classify_drift(name)
             except Exception:
-                warning = None
-            if warning:
+                tier = "insufficient_history"
+            drift_counts[tier] = drift_counts.get(tier, 0) + 1
+            if tier in ("low", "medium", "high"):
                 drift_warnings += 1
-        if drift_warnings > 0:
-            drift_is_downward = True
-            # detect_gradual_drift already uses OLS + threshold; treat any
-            # positive result as high confidence.
+
+        # Aggregate confidence = highest tier observed across tests.
+        # A single high-confidence drifter is enough to escalate.
+        if drift_counts["high"] > 0:
             drift_confidence = "high"
+            drift_is_downward = True
+        elif drift_counts["medium"] > 0:
+            drift_confidence = "medium"
+            drift_is_downward = True
+        elif drift_counts["low"] > 0:
+            drift_confidence = "low"
+            drift_is_downward = True
 
     cost_delta_ratio = _aggregate_cost_delta_ratio(diffs, results, golden_traces)
 
@@ -287,12 +299,45 @@ def _compute_verdict_payload(
             severity_rank.get(getattr(r, "confidence", "medium"), 1),
         )
     )
+
+    # W3.4 — replay stability check.
+    # When the verdict is INVESTIGATE, prepend a "rerun statistically"
+    # recommendation so users have a cheap one-command way to decide
+    # "flake or real?" before they escalate or ignore. This is the
+    # single most operational output of the verdict layer.
+    #
+    # IMPORTANT: insert AFTER the sort, not before. Inserting before
+    # the sort lets existing high-severity recs demote this one off
+    # the top-3 — which defeats the whole point of the stability
+    # check (it's the *first* thing the user should do).
+    from evalview.core.recommendations import Recommendation as _Rec
+    from evalview.core.verdict import Verdict as _Verdict
+    if verdict == _Verdict.INVESTIGATE:
+        stability_rec = _Rec(
+            action="Rerun statistically to distinguish flake from real drift",
+            confidence="high",
+            category="config",
+            detail=(
+                "The verdict is INVESTIGATE — some signals moved but it's "
+                "not clear whether the change is a genuine regression or LLM "
+                "variance. Rerunning 5x with --statistical gives a confidence "
+                "interval that settles the question in under a minute."
+            ),
+            likely_cause="Uncertain — stability check separates flake from drift.",
+            severity="high",  # tier-one concern when INVESTIGATE fires
+            suggested_commands=["evalview check --statistical 5"],
+        )
+        all_recs.insert(0, stability_rec)
+
     top_recs = all_recs[:3]
     payload["recommendations"] = [r.to_dict() for r in top_recs]
     if cost_delta_ratio is not None:
         payload["cost_delta_ratio"] = round(cost_delta_ratio, 4)
     if drift_warnings > 0:
         payload["drift_affected_tests"] = drift_warnings
+        payload["drift_breakdown"] = {
+            k: v for k, v in drift_counts.items() if v > 0 and k != "stable"
+        }
     # Cap the stale-tests list to keep the payload bounded — consumers
     # (PR comments, Slack, cloud) only ever show the first few names
     # anyway. `stale` still carries the true count.

@@ -279,6 +279,44 @@ class DriftTracker:
 
         return None
 
+    def classify_drift(
+        self,
+        test_name: str,
+        window: int = 10,
+    ) -> Tuple[str, Optional[float]]:
+        """Grade a test's drift into a confidence tier.
+
+        Returns (tier, slope) where tier is one of:
+            - "insufficient_history" — fewer than 3 samples, can't decide
+            - "stable"                — slope >= -0.005 per check
+            - "low"                   — slight downward trend but likely noise
+            - "medium"                — concerning, worth a look
+            - "high"                  — steep decline, almost certainly real
+
+        This is the graded replacement for the boolean short-circuit
+        used by _compute_verdict_payload in Week 1 — "high" now
+        actually means high, not "any warning was observed".
+
+        The thresholds match the verdict layer's flip rule: "high"
+        confidence downward drift escalates a would-be SAFE_TO_SHIP
+        to INVESTIGATE.
+        """
+        recent = self._load_recent(test_name, window)
+        if len(recent) < 3:
+            return ("insufficient_history", None)
+
+        similarities = [r["output_similarity"] for r in recent]
+        slope = _compute_slope(similarities)
+
+        # Rising or flat — not a drift concern
+        if slope >= -0.005:
+            return ("stable", slope)
+        if slope >= -0.015:
+            return ("low", slope)
+        if slope >= -0.025:
+            return ("medium", slope)
+        return ("high", slope)
+
     def get_test_history(
         self, test_name: str, limit: int = 50
     ) -> List[Dict[str, Any]]:

@@ -65,6 +65,9 @@ from evalview.commands.watch_cmd import watch
 from evalview.commands.badge_cmd import badge
 from evalview.commands.log_cmd import log_cmd
 from evalview.commands.since_cmd import since_cmd
+from evalview.commands.progress_cmd import progress_cmd
+from evalview.commands.drift_cmd import drift_cmd
+from evalview.commands.slack_digest_cmd import slack_digest_cmd
 
 
 @click.group(context_settings={"allow_interspersed_args": False})
@@ -201,6 +204,9 @@ main.add_command(badge)
 main.add_command(quarantine)
 main.add_command(log_cmd, name="log")
 main.add_command(since_cmd, name="since")
+main.add_command(progress_cmd, name="progress")
+main.add_command(drift_cmd, name="drift")
+main.add_command(slack_digest_cmd, name="slack-digest")
 
 
 if __name__ == "__main__":
