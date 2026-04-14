@@ -277,6 +277,13 @@ class AdapterRegistry:
         except ImportError:
             logger.warning("OpenCodeAdapter not available")
 
+        try:
+            from evalview.adapters.aider_adapter import AiderAdapter
+
+            cls.register("aider", AiderAdapter)
+        except ImportError:
+            logger.warning("AiderAdapter not available")
+
         cls._initialized = True
 
     @classmethod

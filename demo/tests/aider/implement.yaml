@@ -1,0 +1,32 @@
+name: "aider-implement"
+description: "Implement group_by_key() from its docstring in stub.py — Aider + Claude Sonnet"
+
+adapter: aider
+adapter_config:
+  model: claude-sonnet-4-6
+  aider_path: /Users/hidaibar-mor/opt/anaconda3/envs/langgraph/bin/aider
+  timeout: 240
+
+input:
+  query: >
+    Implement the group_by_key() function in stub.py. The docstring and
+    type signature are already there — the body is just `pass`. Implement
+    it so it matches the docstring exactly, including the note that items
+    missing the key should be silently skipped.
+  context:
+    cwd: demo/fixtures/aider
+    files: [stub.py]
+    reset_files: true
+
+expected:
+  tools:
+    - read_file
+    - edit_file
+  output:
+    not_contains:
+      - "cannot"
+      - "unable"
+
+thresholds:
+  min_score: 70
+  max_latency: 240000

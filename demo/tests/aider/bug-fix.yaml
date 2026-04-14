@@ -1,0 +1,32 @@
+name: "aider-bug-fix"
+description: "Fix off-by-one bug in find_max() — Aider + Claude Sonnet"
+
+adapter: aider
+adapter_config:
+  model: claude-sonnet-4-6
+  aider_path: /Users/hidaibar-mor/opt/anaconda3/envs/langgraph/bin/aider
+  timeout: 180
+
+input:
+  query: >
+    There is a bug in buggy.py. The find_max function uses
+    range(1, len(numbers) - 1) which means it never checks the last
+    element. Fix the bug so the function correctly returns the maximum
+    value including the last element.
+  context:
+    cwd: demo/fixtures/aider
+    files: [buggy.py]
+    reset_files: true
+
+expected:
+  tools:
+    - read_file
+    - edit_file
+  output:
+    not_contains:
+      - "cannot"
+      - "unable"
+
+thresholds:
+  min_score: 70
+  max_latency: 180000

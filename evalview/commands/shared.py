@@ -473,7 +473,7 @@ def _build_adapter_for_tc(
     endpoint = tc.endpoint or (config.endpoint if config else None)
 
     # These adapters have their own auth/model and don't need an HTTP endpoint
-    _no_endpoint_adapters = {"opencode", "goose", "openai-assistants", "mistral", "cohere"}
+    _no_endpoint_adapters = {"opencode", "goose", "openai-assistants", "mistral", "cohere", "aider"}
     needs_endpoint = adapter_type not in _no_endpoint_adapters if adapter_type else True
 
     if not adapter_type or (needs_endpoint and not endpoint):
@@ -489,6 +489,18 @@ def _build_adapter_for_tc(
             timeout=test_cfg.get("timeout", timeout),
             model=test_cfg.get("model"),
             cwd=ctx.get("cwd"),
+        )
+
+    if adapter_type == "aider":
+        from evalview.adapters.aider_adapter import AiderAdapter
+        aider_cfg: dict = tc.adapter_config or {}
+        aider_ctx = tc.input.context or {}
+        return AiderAdapter(
+            timeout=aider_cfg.get("timeout", timeout),
+            model=aider_cfg.get("model"),
+            cwd=aider_ctx.get("cwd"),
+            aider_path=aider_cfg.get("aider_path", "aider"),
+            reset_files=aider_cfg.get("reset_files", True),
         )
 
     return _create_adapter(adapter_type, endpoint or "", timeout=timeout, allow_private_urls=allow_private)

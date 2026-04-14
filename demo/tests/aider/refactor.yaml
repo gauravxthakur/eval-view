@@ -1,0 +1,33 @@
+name: "aider-refactor"
+description: "Refactor p() in messy.py for readability — Aider + Claude Sonnet"
+
+adapter: aider
+adapter_config:
+  model: claude-sonnet-4-6
+  aider_path: /Users/hidaibar-mor/opt/anaconda3/envs/langgraph/bin/aider
+  timeout: 180
+
+input:
+  query: >
+    Refactor the function p() in messy.py. It has poor naming, deeply nested
+    conditionals, and uses type() instead of isinstance(). Rewrite it to be
+    clean and readable while preserving the exact same behaviour: filter out
+    None values, strip whitespace from non-empty strings, and pass through
+    all other types unchanged.
+  context:
+    cwd: demo/fixtures/aider
+    files: [messy.py]
+    reset_files: true
+
+expected:
+  tools:
+    - read_file
+    - edit_file
+  output:
+    not_contains:
+      - "cannot"
+      - "unable"
+
+thresholds:
+  min_score: 70
+  max_latency: 180000

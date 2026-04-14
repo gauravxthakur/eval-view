@@ -153,6 +153,17 @@ def build_adapter(
             model=cfg.get("goose_model") or cfg.get("model"),
         )
 
+    if adapter_type == "aider":
+        from evalview.adapters.aider_adapter import AiderAdapter
+
+        return AiderAdapter(
+            timeout=cfg.get("timeout", 300.0),
+            cwd=cfg.get("cwd"),
+            model=cfg.get("model"),
+            aider_path=cfg.get("aider_path", "aider"),
+            reset_files=cfg.get("reset_files", True),
+        )
+
     if adapter_type == "mcp":
         from evalview.adapters.mcp_adapter import MCPAdapter
 
@@ -200,7 +211,7 @@ def get_test_adapter(
     Raises:
         ValueError: When neither a test-specific nor global adapter is available.
     """
-    API_ONLY_ADAPTERS = {"openai-assistants", "goose", "mistral", "opencode"}
+    API_ONLY_ADAPTERS = {"openai-assistants", "goose", "mistral", "opencode", "aider"}
 
     test_adapter_type = test_case.adapter
     test_endpoint = test_case.endpoint
@@ -228,6 +239,20 @@ def get_test_adapter(
                 timeout=test_cfg.get("timeout", 300.0),
                 model=test_cfg.get("model"),
                 cwd=ctx.get("cwd"),
+            )
+
+        # aider pulls cwd from the test's input context and everything
+        # else from adapter_config
+        if test_adapter_type == "aider":
+            from evalview.adapters.aider_adapter import AiderAdapter
+
+            ctx = test_case.input.context or {}
+            return AiderAdapter(
+                timeout=test_cfg.get("timeout", 300.0),
+                cwd=ctx.get("cwd"),
+                model=test_cfg.get("model"),
+                aider_path=test_cfg.get("aider_path", "aider"),
+                reset_files=test_cfg.get("reset_files", True),
             )
 
         # goose pulls cwd/extensions from the test's input context
