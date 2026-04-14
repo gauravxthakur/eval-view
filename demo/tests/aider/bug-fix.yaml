@@ -4,7 +4,6 @@ description: "Fix off-by-one bug in find_max() — Aider + Claude Sonnet"
 adapter: aider
 adapter_config:
   model: claude-sonnet-4-6
-  aider_path: /Users/hidaibar-mor/opt/anaconda3/envs/langgraph/bin/aider
   timeout: 180
 
 input:

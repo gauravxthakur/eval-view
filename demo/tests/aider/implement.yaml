@@ -4,7 +4,6 @@ description: "Implement group_by_key() from its docstring in stub.py — Aider +
 adapter: aider
 adapter_config:
   model: claude-sonnet-4-6
-  aider_path: /Users/hidaibar-mor/opt/anaconda3/envs/langgraph/bin/aider
   timeout: 240
 
 input:

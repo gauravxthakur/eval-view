@@ -80,14 +80,15 @@ class AiderAdapter(AgentAdapter):
         timeout: float = 300.0,
         model: Optional[str] = None,
         cwd: Optional[str] = None,
-        aider_path: str = "aider",
+        aider_path: Optional[str] = None,
         reset_files: bool = True,
         **kwargs: Any,
     ) -> None:
         self.timeout = timeout
         self.model = model
         self.cwd = cwd
-        self.aider_path = aider_path
+        # Resolve aider binary path: explicit arg > AIDER_PATH env var > "aider" on PATH.
+        self.aider_path = aider_path or os.getenv("AIDER_PATH") or "aider"
         self.reset_files = reset_files
         self._last_raw_output: Optional[str] = None
 

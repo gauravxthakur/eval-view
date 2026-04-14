@@ -499,7 +499,7 @@ def _build_adapter_for_tc(
             timeout=aider_cfg.get("timeout", timeout),
             model=aider_cfg.get("model"),
             cwd=aider_ctx.get("cwd"),
-            aider_path=aider_cfg.get("aider_path", "aider"),
+            aider_path=aider_cfg.get("aider_path"),
             reset_files=aider_cfg.get("reset_files", True),
         )
 

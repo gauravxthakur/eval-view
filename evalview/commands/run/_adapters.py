@@ -160,7 +160,7 @@ def build_adapter(
             timeout=cfg.get("timeout", 300.0),
             cwd=cfg.get("cwd"),
             model=cfg.get("model"),
-            aider_path=cfg.get("aider_path", "aider"),
+            aider_path=cfg.get("aider_path"),
             reset_files=cfg.get("reset_files", True),
         )
 
@@ -251,7 +251,7 @@ def get_test_adapter(
                 timeout=test_cfg.get("timeout", 300.0),
                 cwd=ctx.get("cwd"),
                 model=test_cfg.get("model"),
-                aider_path=test_cfg.get("aider_path", "aider"),
+                aider_path=test_cfg.get("aider_path"),
                 reset_files=test_cfg.get("reset_files", True),
             )
 
