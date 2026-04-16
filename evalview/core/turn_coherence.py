@@ -29,15 +29,37 @@ No LLM calls needed for the core analysis.
 from __future__ import annotations
 
 import logging
-from collections import Counter, defaultdict
+import re
+from collections import defaultdict
 from dataclasses import dataclass, field
-from difflib import SequenceMatcher
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from evalview.core.types import ExecutionTrace, TurnTrace, StepTrace
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Detection thresholds
+# ---------------------------------------------------------------------------
+
+# Minimum turns required for each detector to fire
+AMNESIA_MIN_TURNS = 3
+REGRESSION_MIN_TURNS = 2
+DRIFT_MIN_TURNS = 4
+CONTRADICTION_MIN_TURNS = 2
+
+# Jaccard similarity below which tool sets are considered "drifted"
+DRIFT_JACCARD_THRESHOLD = 0.3
+
+# Minimum abandoned or new tools to flag strategy drift
+DRIFT_MIN_TOOL_CHANGE = 2
+
+# Coherence score penalties per severity level
+COHERENCE_PENALTY_ERROR = 0.2
+COHERENCE_PENALTY_WARNING = 0.1
+COHERENCE_PENALTY_INFO = 0.03
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +95,7 @@ class CoherenceIssue:
     reference_turn: Optional[int] = None  # Which earlier turn is relevant
     evidence: Dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "category": self.category.value,
             "severity": self.severity.value,
@@ -121,7 +143,7 @@ class CoherenceReport:
             f"(score: {self.coherence_score:.0%})"
         )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "issues": [i.to_dict() for i in self.issues],
             "total_turns": self.total_turns,
@@ -142,8 +164,6 @@ def _extract_key_entities(text: str) -> Set[str]:
     specific values (capitalized words, numbers, quoted strings).
     Not a full NER — just enough to detect obvious context loss.
     """
-    import re
-
     entities: Set[str] = set()
 
     # Capitalized multi-word phrases (likely names, places, products)
@@ -163,7 +183,6 @@ def _extract_key_entities(text: str) -> Set[str]:
 
 def _detect_context_amnesia(
     turns: List[TurnTrace],
-    steps: List[StepTrace],
 ) -> List[CoherenceIssue]:
     """Detect when the agent stops referencing earlier context.
 
@@ -171,10 +190,10 @@ def _detect_context_amnesia(
     the agent still references them when relevant in later turns.
     """
     issues: List[CoherenceIssue] = []
-    if len(turns) < 3:
+    if len(turns) < AMNESIA_MIN_TURNS:
         return issues
 
-    # Build cumulative entity set from queries (what the user said)
+    # Build entity set per turn from queries (what the user said)
     query_entities_by_turn: Dict[int, Set[str]] = {}
     cumulative_entities: Set[str] = set()
 
@@ -186,6 +205,20 @@ def _detect_context_amnesia(
     if not cumulative_entities:
         return issues
 
+    # Pre-compute early entities (first half of conversation) — constant
+    early_turn_cutoff = max(1, len(turns) // 2)
+    early_entities: Set[str] = set()
+    # Also track which turn introduced each entity (for reference_turn)
+    entity_origin_turn: Dict[str, int] = {}
+    for t in turns[:early_turn_cutoff]:
+        for entity in query_entities_by_turn.get(t.index, set()):
+            early_entities.add(entity)
+            if entity not in entity_origin_turn:
+                entity_origin_turn[entity] = t.index
+
+    if not early_entities:
+        return issues
+
     # Check later turns' outputs for reference to earlier entities
     # Skip the first 2 turns (too early for amnesia)
     for turn in turns[2:]:
@@ -193,15 +226,6 @@ def _detect_context_amnesia(
             continue
 
         output_lower = turn.output.lower()
-
-        # Entities from the first half of the conversation
-        early_turn_cutoff = max(1, len(turns) // 2)
-        early_entities: Set[str] = set()
-        for t in turns[:early_turn_cutoff]:
-            early_entities |= query_entities_by_turn.get(t.index, set())
-
-        if not early_entities:
-            continue
 
         # Check if any early entities are referenced in this turn's query
         # but NOT in the agent's response
@@ -215,6 +239,9 @@ def _detect_context_amnesia(
                 if e not in output_lower
             }
             if missing_in_output and len(missing_in_output) >= len(referenced_early):
+                # Point to the turn that first introduced the missing entity
+                first_missing = sorted(missing_in_output)[0]
+                origin = entity_origin_turn.get(first_missing, turns[0].index)
                 issues.append(CoherenceIssue(
                     category=CoherenceCategory.CONTEXT_AMNESIA,
                     severity=CoherenceSeverity.WARNING,
@@ -224,7 +251,7 @@ def _detect_context_amnesia(
                         f"({', '.join(list(missing_in_output)[:3])}) but agent's response "
                         f"doesn't acknowledge it. Possible context loss."
                     ),
-                    reference_turn=1,
+                    reference_turn=origin,
                     evidence={
                         "missing_entities": sorted(missing_in_output),
                         "referenced_entities": sorted(referenced_early),
@@ -238,14 +265,20 @@ def _detect_tool_regression(
     turns: List[TurnTrace],
     steps: List[StepTrace],
 ) -> List[CoherenceIssue]:
-    """Detect when the agent switches to worse tools in later turns.
+    """Detect when the agent drops tools it previously used.
 
-    If the agent used tool X in turn 2 for purpose P, then uses tool Y
-    in turn 5 for the same purpose, and Y is less specific or less
-    appropriate, that's a tool regression.
+    Compares each turn's tool set against earlier turns. If a later turn
+    drops at least as many tools as it keeps from an earlier turn, it may
+    indicate a less complete strategy.
+
+    Limitation: this is a structural heuristic — it checks tool-set
+    differences but does not verify that the turns have the same purpose.
+    Different queries naturally use different tools; this detector may
+    flag unrelated turns. Best used for conversations where the user's
+    intent is consistent across turns.
     """
     issues: List[CoherenceIssue] = []
-    if len(turns) < 2:
+    if len(turns) < REGRESSION_MIN_TURNS:
         return issues
 
     # Group steps by turn
@@ -304,7 +337,7 @@ def _detect_strategy_drift(
     the conversation. A significant shift suggests strategy drift.
     """
     issues: List[CoherenceIssue] = []
-    if len(turns) < 4:
+    if len(turns) < DRIFT_MIN_TURNS:
         return issues
 
     # Split steps into first half and second half by turn
@@ -340,7 +373,7 @@ def _detect_strategy_drift(
     else:
         jaccard = 1.0
 
-    if jaccard < 0.3 and (len(abandoned) >= 2 or len(new_tools) >= 2):
+    if jaccard < DRIFT_JACCARD_THRESHOLD and (len(abandoned) >= DRIFT_MIN_TOOL_CHANGE or len(new_tools) >= DRIFT_MIN_TOOL_CHANGE):
         issues.append(CoherenceIssue(
             category=CoherenceCategory.STRATEGY_DRIFT,
             severity=CoherenceSeverity.WARNING,
@@ -363,18 +396,33 @@ def _detect_strategy_drift(
     return issues
 
 
+# Pre-compiled patterns for contradiction detection
+# "X is Y" — captures subject, predicate for negation check
+_IS_PHRASE_RE = re.compile(r'\b(\w+)\s+is\s+(\w+)\b')
+# "the X is $50" / "the X is 42" — captures labeled values
+_LABELED_VALUE_RE = re.compile(
+    r'\bthe\s+(\w+)\s+is\s+'          # "the price is"
+    r'(\$?[\d,]+(?:\.\d+)?)\b'        # "$50" / "42" / "1,200.50"
+)
+# "X has/have Y" vs "X doesn't/don't have Y"
+_HAS_PHRASE_RE = re.compile(r'\b(\w+)\s+(has|have)\s+(\w+)\b')
+
+
 def _detect_output_contradiction(
     turns: List[TurnTrace],
 ) -> List[CoherenceIssue]:
     """Detect when the agent's outputs directly contradict each other.
 
-    Uses simple lexical heuristics to detect:
-    - Turn N says "X is Y" and turn M says "X is not Y"
-    - Turn N provides value V and turn M provides a different value for
-      the same field
+    Uses lexical heuristics to detect three types of contradictions:
+    1. Negation: "X is Y" vs "X is not Y"
+    2. Value change: "the price is $50" vs "the price is $75"
+    3. Has/doesn't: "X has Y" vs "X doesn't have Y"
+
+    Limitations: does not catch semantic contradictions that don't match
+    these structural patterns (e.g., "available Monday" vs "available Tuesday").
     """
     issues: List[CoherenceIssue] = []
-    if len(turns) < 2:
+    if len(turns) < CONTRADICTION_MIN_TURNS:
         return issues
 
     # Compare each turn's output against all earlier turns
@@ -391,46 +439,80 @@ def _detect_output_contradiction(
             if not prev_lower or not curr_lower:
                 continue
 
-            # Check for direct negation patterns
-            # "X is available" vs "X is not available"
-            # "X is correct" vs "X is incorrect"
-            # This is a simple heuristic — catches obvious contradictions
-            contradiction_found = False
-
-            # Extract short declarative phrases from each output
-            import re
-            prev_phrases = set(re.findall(r'\b(\w+\s+is\s+\w+)\b', prev_lower))
-            curr_phrases = set(re.findall(r'\b(\w+\s+is\s+\w+)\b', curr_lower))
-
-            for pp in prev_phrases:
-                # Check if the negation exists in current
-                words = pp.split()
-                if len(words) >= 3:
-                    subject = words[0]
-                    predicate = words[2]
-                    negated = f"{subject} is not {predicate}"
-                    if negated in curr_lower:
-                        contradiction_found = True
-                        issues.append(CoherenceIssue(
-                            category=CoherenceCategory.OUTPUT_CONTRADICTION,
-                            severity=CoherenceSeverity.ERROR,
-                            turn_index=curr_idx,
-                            reference_turn=prev_idx,
-                            description=(
-                                f"Turn {curr_idx} contradicts turn {prev_idx}: "
-                                f"'{pp}' vs '{negated}'"
-                            ),
-                            evidence={
-                                "original_phrase": pp,
-                                "contradicting_phrase": negated,
-                            },
-                        ))
-                        break
-
-            if contradiction_found:
-                break  # One contradiction per turn pair is enough
+            contradiction = _find_contradiction(prev_lower, curr_lower)
+            if contradiction:
+                original, contradicting, kind = contradiction
+                issues.append(CoherenceIssue(
+                    category=CoherenceCategory.OUTPUT_CONTRADICTION,
+                    severity=CoherenceSeverity.ERROR,
+                    turn_index=curr_idx,
+                    reference_turn=prev_idx,
+                    description=(
+                        f"Turn {curr_idx} contradicts turn {prev_idx}: "
+                        f"'{original}' vs '{contradicting}'"
+                    ),
+                    evidence={
+                        "original_phrase": original,
+                        "contradicting_phrase": contradicting,
+                        "contradiction_type": kind,
+                    },
+                ))
+                break  # One contradiction per later turn is enough
 
     return issues
+
+
+def _find_contradiction(
+    prev: str,
+    curr: str,
+) -> Optional[Tuple[str, str, str]]:
+    """Find a contradiction between two output strings.
+
+    Returns (original_phrase, contradicting_phrase, kind) or None.
+    """
+    # 1. Negation: "X is Y" vs "X is not Y"
+    for match in _IS_PHRASE_RE.finditer(prev):
+        subject, predicate = match.group(1), match.group(2)
+        negated = f"{subject} is not {predicate}"
+        if negated in curr:
+            return (match.group(), negated, "negation")
+
+    # Also check reverse: current says "X is Y", prev says "X is not Y"
+    for match in _IS_PHRASE_RE.finditer(curr):
+        subject, predicate = match.group(1), match.group(2)
+        negated = f"{subject} is not {predicate}"
+        if negated in prev:
+            return (negated, match.group(), "negation")
+
+    # 2. Value change: "the price is $50" vs "the price is $75"
+    prev_values: Dict[str, str] = {}
+    for match in _LABELED_VALUE_RE.finditer(prev):
+        label, value = match.group(1), match.group(2)
+        prev_values[label] = value
+
+    for match in _LABELED_VALUE_RE.finditer(curr):
+        label, value = match.group(1), match.group(2)
+        if label in prev_values and prev_values[label] != value:
+            return (
+                f"the {label} is {prev_values[label]}",
+                f"the {label} is {value}",
+                "value_change",
+            )
+
+    # 3. Has/doesn't have: "X has Y" vs "X doesn't have Y"
+    for match in _HAS_PHRASE_RE.finditer(prev):
+        subject, verb, obj = match.group(1), match.group(2), match.group(3)
+        negated_patterns = [
+            f"{subject} doesn't have {obj}",
+            f"{subject} does not have {obj}",
+            f"{subject} don't have {obj}",
+            f"{subject} do not have {obj}",
+        ]
+        for neg in negated_patterns:
+            if neg in curr:
+                return (match.group(), neg, "has_negation")
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -458,7 +540,7 @@ def analyze_coherence(trace: ExecutionTrace) -> CoherenceReport:
 
     all_issues: List[CoherenceIssue] = []
 
-    all_issues.extend(_detect_context_amnesia(turns, steps))
+    all_issues.extend(_detect_context_amnesia(turns))
     all_issues.extend(_detect_tool_regression(turns, steps))
     all_issues.extend(_detect_strategy_drift(turns, steps))
     all_issues.extend(_detect_output_contradiction(turns))
@@ -467,11 +549,11 @@ def analyze_coherence(trace: ExecutionTrace) -> CoherenceReport:
     score = 1.0
     for issue in all_issues:
         if issue.severity == CoherenceSeverity.ERROR:
-            score -= 0.2
+            score -= COHERENCE_PENALTY_ERROR
         elif issue.severity == CoherenceSeverity.WARNING:
-            score -= 0.1
+            score -= COHERENCE_PENALTY_WARNING
         elif issue.severity == CoherenceSeverity.INFO:
-            score -= 0.03
+            score -= COHERENCE_PENALTY_INFO
     score = max(0.0, min(1.0, score))
 
     return CoherenceReport(

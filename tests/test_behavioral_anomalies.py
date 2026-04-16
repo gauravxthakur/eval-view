@@ -274,3 +274,184 @@ class TestDetectAnomalies:
         assert "anomalies" in d
         assert "summary" in d
         assert d["total_steps"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Step fingerprinting
+# ---------------------------------------------------------------------------
+
+
+from evalview.core.behavioral_anomalies import _step_fingerprint
+
+
+class TestStepFingerprint:
+    def test_same_tool_same_params_same_fingerprint(self):
+        s1 = _step("search", {"q": "hello"})
+        s2 = _step("search", {"q": "hello"})
+        assert _step_fingerprint(s1) == _step_fingerprint(s2)
+
+    def test_different_params_different_fingerprint(self):
+        s1 = _step("search", {"q": "hello"})
+        s2 = _step("search", {"q": "world"})
+        assert _step_fingerprint(s1) != _step_fingerprint(s2)
+
+    def test_nested_dict_params_stable(self):
+        s1 = _step("api", {"filters": {"a": 1, "b": 2}})
+        s2 = _step("api", {"filters": {"b": 2, "a": 1}})
+        assert _step_fingerprint(s1) == _step_fingerprint(s2)
+
+    def test_large_params_truncated(self):
+        long_val = "x" * 500
+        s = _step("tool", {"data": long_val})
+        fp = _step_fingerprint(s)
+        # The fingerprint should contain truncation marker
+        assert "..." in fp
+
+
+# ---------------------------------------------------------------------------
+# Tool loop boundary
+# ---------------------------------------------------------------------------
+
+
+class TestToolLoopBoundary:
+    def test_two_identical_not_flagged(self):
+        """Exactly 2 identical calls is below LOOP_MIN_CONSECUTIVE (3)."""
+        steps = [
+            _step("search", {"q": "x"}),
+            _step("search", {"q": "x"}),
+        ]
+        assert _detect_tool_loops(steps) == []
+
+
+# ---------------------------------------------------------------------------
+# Progress stall boundary
+# ---------------------------------------------------------------------------
+
+
+class TestProgressStallBoundary:
+    def test_exactly_at_threshold(self):
+        """Exactly 5 non-new-tool calls (STALL_WINDOW) should flag."""
+        # Introduce 2 tools, then repeat only those for 5 more calls
+        steps = [
+            _step("a"),
+            _step("b"),
+            _step("a"),  # stall starts here
+            _step("b"),
+            _step("a"),
+            _step("b"),
+            _step("a"),
+        ]
+        anomalies = _detect_progress_stalls(steps)
+        assert len(anomalies) == 1
+        assert anomalies[0].pattern == AnomalyPattern.PROGRESS_STALL
+
+    def test_below_threshold(self):
+        """4 non-new-tool calls should NOT flag."""
+        steps = [
+            _step("a"),
+            _step("b"),
+            _step("a"),
+            _step("b"),
+            _step("a"),
+            _step("b"),
+        ]
+        anomalies = _detect_progress_stalls(steps)
+        assert anomalies == []
+
+
+# ---------------------------------------------------------------------------
+# Brittle recovery — success vs failure retries
+# ---------------------------------------------------------------------------
+
+
+class TestBrittleRecoverySuccessful:
+    def test_successful_retries_are_warning(self):
+        """Failed step + 2 identical retries that SUCCEED should be WARNING."""
+        steps = [
+            _step("search", {"q": "x"}, success=False, error="timeout"),
+            _step("search", {"q": "x"}, success=True),
+            _step("search", {"q": "x"}, success=True),
+        ]
+        anomalies = _detect_brittle_recovery(steps)
+        assert len(anomalies) == 1
+        assert anomalies[0].severity == AnomalySeverity.WARNING
+
+    def test_all_failed_retries_are_error(self):
+        """Failed step + 2 identical failed retries should be ERROR."""
+        steps = [
+            _step("search", {"q": "x"}, success=False, error="timeout"),
+            _step("search", {"q": "x"}, success=False, error="timeout"),
+            _step("search", {"q": "x"}, success=False, error="timeout"),
+        ]
+        anomalies = _detect_brittle_recovery(steps)
+        assert len(anomalies) == 1
+        assert anomalies[0].severity == AnomalySeverity.ERROR
+
+
+# ---------------------------------------------------------------------------
+# Empty / minimal inputs
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyInputs:
+    def test_empty_steps_all_detectors(self):
+        """Empty list should return no anomalies for all detectors."""
+        assert _detect_tool_loops([]) == []
+        assert _detect_progress_stalls([]) == []
+        assert _detect_brittle_recovery([]) == []
+        assert _detect_excessive_retries([]) == []
+        assert _detect_skipped_steps([], None) == []
+
+    def test_single_step(self):
+        """Single step should return no anomalies."""
+        steps = [_step("a")]
+        assert _detect_tool_loops(steps) == []
+        assert _detect_progress_stalls(steps) == []
+        assert _detect_brittle_recovery(steps) == []
+        assert _detect_excessive_retries(steps) == []
+        assert _detect_skipped_steps(steps, None) == []
+
+
+# ---------------------------------------------------------------------------
+# Report with anomalies
+# ---------------------------------------------------------------------------
+
+
+class TestReportWithAnomalies:
+    def test_summary_with_anomalies(self):
+        """summary() should show error/warning counts when anomalies present."""
+        steps = [
+            _step("search", {"q": "x"}),
+            _step("search", {"q": "x"}),
+            _step("search", {"q": "x"}),
+        ]
+        trace = _trace(steps)
+        report = detect_anomalies(trace)
+        assert report.has_anomalies
+        summary = report.summary()
+        assert "error" in summary.lower()
+        assert "tool_loop" in summary
+
+    def test_error_and_warning_properties(self):
+        """error_anomalies and warning_anomalies should filter correctly."""
+        steps = [
+            _step("a"),
+            _step("b"),
+            _step("a"),
+            _step("b"),
+            _step("a"),
+            _step("b"),
+            _step("a"),
+        ]
+        trace = _trace(steps)
+        report = detect_anomalies(trace)
+        # Progress stalls produce WARNING severity
+        assert len(report.warning_anomalies) >= 1
+        assert all(
+            a.severity == AnomalySeverity.WARNING
+            for a in report.warning_anomalies
+        )
+        assert all(
+            a.severity == AnomalySeverity.ERROR
+            for a in report.error_anomalies
+        )

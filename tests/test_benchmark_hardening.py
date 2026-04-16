@@ -261,3 +261,224 @@ class TestBatchChecks:
         ]
         report = check_gaming_batch(results)
         assert not report.has_flags
+
+
+# ---------------------------------------------------------------------------
+# Suspiciously fast — boundary cases
+# ---------------------------------------------------------------------------
+
+
+class TestSuspiciouslyFastBoundary:
+    def test_info_severity_between_half_and_full(self):
+        """Latency=400 is above 250 (half of 500) but below 500 threshold → INFO."""
+        trace = _trace(latency=400)
+        flags = _check_suspiciously_fast(trace)
+        assert len(flags) == 1
+        assert flags[0].severity == FlagSeverity.INFO
+
+    def test_zero_steps_not_flagged(self):
+        """Fast trace with zero steps should not be flagged."""
+        trace = _trace(steps=[], latency=100)
+        flags = _check_suspiciously_fast(trace)
+        assert flags == []
+
+
+# ---------------------------------------------------------------------------
+# Too perfect — latency=0 and many-tool cases
+# ---------------------------------------------------------------------------
+
+
+class TestTooPerfectLatencyZero:
+    def test_unmeasured_latency_not_fast(self):
+        """score=100, latency=0, 1 step: should NOT be CRITICAL (latency=0 = unmeasured)."""
+        trace = _trace(steps=[_step("x")], latency=0)
+        flags = _check_too_perfect(trace, score=100)
+        assert len(flags) == 1
+        # latency=0 means unmeasured, so is_fast should be False
+        # With 1 step (is_light=True but not is_fast), severity should be SUSPICIOUS
+        assert flags[0].severity != FlagSeverity.CRITICAL
+
+    def test_perfect_with_many_tools_high_latency_is_info(self):
+        """score=100, latency=5000, 10 steps: should be INFO severity."""
+        steps = [_step(f"tool_{i}") for i in range(10)]
+        trace = _trace(steps=steps, latency=5000)
+        flags = _check_too_perfect(trace, score=100)
+        assert len(flags) == 1
+        assert flags[0].severity == FlagSeverity.INFO
+
+
+# ---------------------------------------------------------------------------
+# Abnormal file access — substring fix
+# ---------------------------------------------------------------------------
+
+
+class TestAbnormalFileAccessBoundary:
+    def test_evalview_path_not_matched(self):
+        """Params containing '.evalview/' should NOT match '.eval' extension."""
+        steps = [_step("read", {"path": "/app/.evalview/config.yaml"})]
+        trace = _trace(steps=steps)
+        flags = _check_abnormal_file_access(trace)
+        # ".evalview" should NOT match ".eval" because the regex requires
+        # a non-alphanumeric char or end-of-string after the extension
+        assert flags == []
+
+
+# ---------------------------------------------------------------------------
+# Trust score clamping
+# ---------------------------------------------------------------------------
+
+
+from evalview.core.benchmark_hardening import _compute_trust_score
+
+
+class TestTrustScoreClamping:
+    def test_trust_never_below_zero(self):
+        """Many flags should clamp trust to 0.0."""
+        flags = [
+            GamingFlag(check=GamingCheck.CONFIG_LEAKAGE, severity=FlagSeverity.CRITICAL, description="a"),
+            GamingFlag(check=GamingCheck.TOO_PERFECT, severity=FlagSeverity.CRITICAL, description="b"),
+            GamingFlag(check=GamingCheck.SCORE_WITHOUT_WORK, severity=FlagSeverity.CRITICAL, description="c"),
+            GamingFlag(check=GamingCheck.SUSPICIOUSLY_FAST, severity=FlagSeverity.CRITICAL, description="d"),
+        ]
+        trust = _compute_trust_score(flags)
+        assert trust == 0.0
+
+    def test_trust_exact_values(self):
+        """Single CRITICAL flag: 1.0 - 0.3 = 0.7."""
+        flags = [
+            GamingFlag(check=GamingCheck.CONFIG_LEAKAGE, severity=FlagSeverity.CRITICAL, description="x"),
+        ]
+        trust = _compute_trust_score(flags)
+        assert trust == 0.7
+
+
+# ---------------------------------------------------------------------------
+# Batch — partial perfect
+# ---------------------------------------------------------------------------
+
+
+class TestBatchPartialPerfect:
+    def test_eighty_percent_perfect_flagged(self):
+        """5 results, 4 perfect, 1 imperfect → should flag SUSPICIOUS."""
+        results = [
+            {"score": 100},
+            {"score": 100},
+            {"score": 100},
+            {"score": 100},
+            {"score": 70},
+        ]
+        report = check_gaming_batch(results)
+        assert report.has_flags
+        assert any(f.severity == FlagSeverity.SUSPICIOUS for f in report.flags)
+
+    def test_below_eighty_percent_ok(self):
+        """5 results, 3 perfect, 2 imperfect → should NOT flag."""
+        results = [
+            {"score": 100},
+            {"score": 100},
+            {"score": 100},
+            {"score": 70},
+            {"score": 65},
+        ]
+        report = check_gaming_batch(results)
+        assert not report.has_flags
+
+
+# ---------------------------------------------------------------------------
+# Batch timing similarity
+# ---------------------------------------------------------------------------
+
+
+class TestBatchTimingSimilarity:
+    def test_identical_latencies_flagged(self):
+        """All tests completing in identical time should be flagged."""
+        results = [
+            {"score": 80, "latency_ms": 1000},
+            {"score": 85, "latency_ms": 1000},
+            {"score": 80, "latency_ms": 1000},
+        ]
+        report = check_gaming_batch(results)
+        timing_flags = [f for f in report.flags if f.check == GamingCheck.SUSPICIOUSLY_FAST]
+        assert len(timing_flags) == 1
+        assert timing_flags[0].severity == FlagSeverity.SUSPICIOUS
+
+    def test_varied_latencies_not_flagged(self):
+        """Normal latency variance should not be flagged."""
+        results = [
+            {"score": 80, "latency_ms": 1000},
+            {"score": 85, "latency_ms": 3500},
+            {"score": 80, "latency_ms": 2200},
+        ]
+        report = check_gaming_batch(results)
+        timing_flags = [f for f in report.flags if f.check == GamingCheck.SUSPICIOUSLY_FAST]
+        assert timing_flags == []
+
+    def test_missing_latencies_skipped(self):
+        """Batch with no latency_ms fields should not crash or flag."""
+        results = [
+            {"score": 80},
+            {"score": 85},
+            {"score": 80},
+        ]
+        report = check_gaming_batch(results)
+        timing_flags = [f for f in report.flags if f.check == GamingCheck.SUSPICIOUSLY_FAST]
+        assert timing_flags == []
+
+
+# ---------------------------------------------------------------------------
+# Exhaustive leakage pattern tests
+# ---------------------------------------------------------------------------
+
+
+class TestAllLeakagePatterns:
+    """Ensure every LEAKAGE_PATTERNS regex actually matches."""
+
+    @pytest.mark.parametrize("path,pattern_desc", [
+        ("/app/.evalview/golden/test.json", ".evalview/"),
+        ("/app/evalview.yaml", "evalview.yaml"),
+        ("/app/evalview.yml", "evalview.yml"),
+        ("/data/golden/baseline.json", "golden/"),
+        ("/data/baseline/expected.json", "baseline/"),
+        ("/data/ground_truth.json", "ground_truth"),
+        ("/data/ground-truth.json", "ground-truth"),
+        ("/data/groundtruth.json", "groundtruth"),
+        ("/keys/answer_key.txt", "answer_key"),
+        ("/keys/answer-key.txt", "answer-key"),
+        ("/keys/answerkey.txt", "answerkey"),
+        ("/out/expected_output.json", "expected_output"),
+        ("/out/expected-output.json", "expected-output"),
+        ("/cfg/test_config.yaml", "test_config"),
+        ("/cfg/test-config.yaml", "test-config"),
+        ("/app/.eval/results.json", ".eval/"),
+        ("/app/eval_results.json", "eval_results"),
+        ("/app/eval-results.json", "eval-results"),
+        ("/rubrics/scoring_rubric.md", "scoring_rubric"),
+        ("/rubrics/scoring-rubric.md", "scoring-rubric"),
+        ("/prompts/judge_prompt.txt", "judge_prompt"),
+        ("/prompts/judge-prompt.txt", "judge-prompt"),
+    ])
+    def test_leakage_pattern_matches(self, path, pattern_desc):
+        steps = [_step("read_file", {"path": path})]
+        trace = _trace(steps=steps)
+        flags = _check_config_leakage(trace)
+        assert len(flags) == 1, f"Expected leakage flag for '{pattern_desc}' in path '{path}'"
+
+
+# ---------------------------------------------------------------------------
+# Exhaustive suspicious extension tests
+# ---------------------------------------------------------------------------
+
+
+class TestAllSuspiciousExtensions:
+    """Ensure every SUSPICIOUS_EXTENSIONS entry is detected."""
+
+    @pytest.mark.parametrize("ext", [
+        ".eval", ".golden", ".baseline", ".answer",
+        ".rubric", ".scoring", ".judge",
+    ])
+    def test_extension_flagged(self, ext):
+        filename = f"answers{ext}"
+        steps = [_step("read", {"path": f"/data/{filename}"})]
+        trace = _trace(steps=steps)
+        flags = _check_abnormal_file_access(trace)
+        assert len(flags) == 1, f"Expected flag for extension '{ext}'"

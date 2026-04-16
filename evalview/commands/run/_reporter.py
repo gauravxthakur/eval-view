@@ -421,59 +421,53 @@ def display_observability_signals(
     console: Any,
 ) -> None:
     """Print behavioral anomaly, trust, and coherence signals from run results."""
-    if not results:
-        return
+    from evalview.core.observability import extract_observability_summary
 
-    anom_tests = [
-        r for r in results
-        if getattr(r, "anomaly_report", None) and r.anomaly_report.get("anomalies")
-    ]
-    low_trust = [
-        r for r in results
-        if getattr(r, "trust_report", None) and r.trust_report.get("trust_score", 1.0) < 0.8
-    ]
-    coherence_tests = [
-        r for r in results
-        if getattr(r, "coherence_report", None) and r.coherence_report.get("issues")
-    ]
-
-    if not anom_tests and not low_trust and not coherence_tests:
+    obs = extract_observability_summary(results)
+    if not obs.has_signals:
         return
 
     console.print("\n[bold cyan]━━━ Observability Signals ━━━[/bold cyan]\n")
 
-    if anom_tests:
+    if obs.anomaly_count:
         console.print(
-            f"  [yellow]⚠ {len(anom_tests)} test(s) with behavioral anomalies[/yellow]"
+            f"  [yellow]⚠ {obs.anomaly_count} test(s) with behavioral anomalies[/yellow]"
         )
-        for r in anom_tests[:5]:
-            for anom in r.anomaly_report.get("anomalies", [])[:2]:
+        # Show per-test detail from the raw results
+        for r in (results or [])[:5]:
+            ar = getattr(r, "anomaly_report", None)
+            if isinstance(ar, dict) and ar.get("anomalies"):
+                for anom in ar["anomalies"][:2]:
+                    console.print(
+                        f"    {getattr(r, 'test_case', '?')}: [dim]{anom.get('pattern', '')} — "
+                        f"{anom.get('description', '')[:100]}[/dim]"
+                    )
+
+    if obs.low_trust_count:
+        console.print(
+            f"  [yellow]⚠ {obs.low_trust_count} test(s) with low trust score[/yellow]"
+        )
+        for r in (results or [])[:5]:
+            tr = getattr(r, "trust_report", None)
+            if isinstance(tr, dict) and float(tr.get("trust_score", 1.0)) < 0.8:
+                score = tr.get("trust_score", 0)
                 console.print(
-                    f"    {r.test_case}: [dim]{anom.get('pattern', '')} — "
-                    f"{anom.get('description', '')[:100]}[/dim]"
+                    f"    {getattr(r, 'test_case', '?')}: [dim]trust {score:.0%} — "
+                    f"{tr.get('summary', '')}[/dim]"
                 )
 
-    if low_trust:
+    if obs.coherence_issue_count:
         console.print(
-            f"  [yellow]⚠ {len(low_trust)} test(s) with low trust score[/yellow]"
+            f"  [yellow]⚠ {obs.coherence_issue_count} multi-turn test(s) with coherence issues[/yellow]"
         )
-        for r in low_trust[:5]:
-            score = r.trust_report.get("trust_score", 0)
-            console.print(
-                f"    {r.test_case}: [dim]trust {score:.0%} — "
-                f"{r.trust_report.get('summary', '')}[/dim]"
-            )
-
-    if coherence_tests:
-        console.print(
-            f"  [yellow]⚠ {len(coherence_tests)} multi-turn test(s) with coherence issues[/yellow]"
-        )
-        for r in coherence_tests[:5]:
-            for issue in r.coherence_report.get("issues", [])[:1]:
-                console.print(
-                    f"    {r.test_case}: [dim]{issue.get('category', '')} — "
-                    f"{issue.get('description', '')[:100]}[/dim]"
-                )
+        for r in (results or [])[:5]:
+            cr = getattr(r, "coherence_report", None)
+            if isinstance(cr, dict) and cr.get("issues"):
+                for issue in cr["issues"][:1]:
+                    console.print(
+                        f"    {getattr(r, 'test_case', '?')}: [dim]{issue.get('category', '')} — "
+                        f"{issue.get('description', '')[:100]}[/dim]"
+                    )
 
     console.print()
 

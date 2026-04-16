@@ -73,30 +73,8 @@ class GateSummary:
     execution_failures: int = 0
 
 
-@dataclass
-class ObservabilitySignals:
-    """Aggregate observability signals across all tests in a gate run.
-
-    These are first-class fields so callers don't need to dig through raw_json.
-    """
-
-    anomaly_count: int = 0
-    """Number of tests with behavioral anomalies (tool loops, stalls, brittle recovery)."""
-
-    low_trust_count: int = 0
-    """Number of tests with trust score < 0.8 (possible benchmark gaming)."""
-
-    coherence_issue_count: int = 0
-    """Number of multi-turn tests with cross-turn coherence issues."""
-
-    anomaly_tests: List[str] = field(default_factory=list)
-    """Names of tests with anomalies."""
-
-    low_trust_tests: List[str] = field(default_factory=list)
-    """Names of tests with low trust scores."""
-
-    coherence_tests: List[str] = field(default_factory=list)
-    """Names of multi-turn tests with coherence issues."""
+# Re-export from the shared module so existing callers keep working
+from evalview.core.observability import ObservabilitySummary as ObservabilitySignals  # noqa: E402
 
 
 @dataclass
@@ -224,24 +202,8 @@ def _build_gate_result(
     }
 
     # Build observability signals from evaluation results
-    obs = ObservabilitySignals()
-    if results:
-        for r in results:
-            try:
-                ar = getattr(r, "anomaly_report", None)
-                if isinstance(ar, dict) and ar.get("anomalies"):
-                    obs.anomaly_count += 1
-                    obs.anomaly_tests.append(getattr(r, "test_case", "?"))
-                tr = getattr(r, "trust_report", None)
-                if isinstance(tr, dict) and float(tr.get("trust_score", 1.0)) < 0.8:
-                    obs.low_trust_count += 1
-                    obs.low_trust_tests.append(getattr(r, "test_case", "?"))
-                cr = getattr(r, "coherence_report", None)
-                if isinstance(cr, dict) and cr.get("issues"):
-                    obs.coherence_issue_count += 1
-                    obs.coherence_tests.append(getattr(r, "test_case", "?"))
-            except (TypeError, ValueError, AttributeError):
-                continue
+    from evalview.core.observability import extract_observability_summary
+    obs = extract_observability_summary(results)
 
     return GateResult(
         passed=not has_failure,

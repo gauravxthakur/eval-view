@@ -801,13 +801,16 @@ class EvaluationResult(BaseModel):
     # Per-turn evaluation results for multi-turn tests
     turn_evaluations: Optional[List[TurnEvaluation]] = None
 
-    # Behavioral anomaly detection results (tool loops, stalls, brittle recovery)
+    # Behavioral anomaly detection results (tool loops, stalls, brittle recovery).
+    # Schema: evalview.core.observability.AnomalyReportDict
     anomaly_report: Optional[Dict[str, Any]] = None
 
-    # Benchmark trust / anti-gaming check results
+    # Benchmark trust / anti-gaming check results.
+    # Schema: evalview.core.observability.TrustReportDict
     trust_report: Optional[Dict[str, Any]] = None
 
-    # Cross-turn coherence analysis (context amnesia, contradictions)
+    # Cross-turn coherence analysis (context amnesia, contradictions).
+    # Schema: evalview.core.observability.CoherenceReportDict
     coherence_report: Optional[Dict[str, Any]] = None
 
 

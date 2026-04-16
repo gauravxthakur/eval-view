@@ -16,24 +16,18 @@ Usage:
     print(report.summary())
 
 The pipeline is intentionally simple — it's a coordinator, not a new engine.
-It reuses DiffEngine, the adapter system, and the evaluator.
+It reuses DiffEngine and the adapter system.
 """
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from evalview.core.diff import DiffEngine, DiffStatus, TraceDiff
+from evalview.core.diff import DiffEngine, DiffConfig, TraceDiff
 from evalview.core.golden import GoldenMetadata, GoldenTrace
-from evalview.core.types import (
-    ExecutionTrace,
-    TestCase,
-    TestInput,
-    ExpectedBehavior,
-    Thresholds,
-)
+from evalview.core.types import ExecutionTrace
 
 logger = logging.getLogger(__name__)
 
@@ -126,30 +120,13 @@ class ReplayBatchResult:
 
 
 # ---------------------------------------------------------------------------
-# Trace → TestCase conversion
+# Trace → Golden conversion
 # ---------------------------------------------------------------------------
 
 
-def trace_to_test_case(
-    trace: ExecutionTrace,
-    name: str = "replay",
-) -> TestCase:
-    """Convert a production trace into a TestCase for re-execution.
-
-    The test case uses the trace's original query as input and the
-    tool sequence as expected behavior, so the replay can be diffed
-    against the original.
-    """
-    tool_names = [step.tool_name for step in trace.steps]
-
-    return TestCase(
-        name=name,
-        input=TestInput(query=trace.final_output),  # Use final output as fallback
-        expected=ExpectedBehavior(
-            tools=tool_names if tool_names else None,
-        ),
-        thresholds=Thresholds(min_score=0),  # Don't fail on score — we want the diff
-    )
+def _get_tool_sequence(trace: ExecutionTrace) -> List[str]:
+    """Extract ordered tool names from a trace."""
+    return [step.tool_name for step in trace.steps]
 
 
 def trace_to_golden(
@@ -162,7 +139,7 @@ def trace_to_golden(
     The original production trace becomes the "blessed" baseline that
     the replay is compared against.
     """
-    tool_sequence = [step.tool_name for step in trace.steps]
+    tool_sequence = _get_tool_sequence(trace)
 
     metadata = GoldenMetadata(
         test_name=test_name,
@@ -197,7 +174,8 @@ class ReplayPipeline:
         adapter_name: str = "http",
         endpoint: Optional[str] = None,
         adapter_config: Optional[Dict[str, Any]] = None,
-        diff_config: Optional[Any] = None,
+        diff_config: Optional[DiffConfig] = None,
+        timeout: float = 120.0,
     ):
         """Initialize the replay pipeline.
 
@@ -206,11 +184,23 @@ class ReplayPipeline:
             endpoint: Agent endpoint URL.
             adapter_config: Additional adapter configuration.
             diff_config: Optional DiffConfig for the diff engine.
+            timeout: Per-replay timeout in seconds.
         """
         self.adapter_name = adapter_name
         self.endpoint = endpoint
         self.adapter_config = adapter_config or {}
+        self.timeout = timeout
         self.diff_engine = DiffEngine(config=diff_config)
+
+    def _get_adapter(self) -> Any:
+        """Create the agent adapter (separate method for testability)."""
+        from evalview.core.adapter_factory import create_adapter
+
+        return create_adapter(
+            adapter_type=self.adapter_name,
+            endpoint=self.endpoint or "",
+            timeout=self.timeout,
+        )
 
     async def replay_trace(
         self,
@@ -234,41 +224,20 @@ class ReplayPipeline:
         # Convert original to golden baseline
         golden = trace_to_golden(original_trace, test_name, original_score)
 
-        # Build test case from the original
+        # Extract query from trace if not provided
         if query is None:
-            # Try to extract query from trace
             query = _extract_query(original_trace)
 
-        test_case = TestCase(
-            name=test_name,
-            input=TestInput(query=query),
-            expected=ExpectedBehavior(
-                tools=[step.tool_name for step in original_trace.steps] or None,
-            ),
-            thresholds=Thresholds(min_score=0),
-            adapter=self.adapter_name if self.adapter_name != "http" else None,
-            endpoint=self.endpoint,
-            adapter_config=self.adapter_config or None,
-        )
-
         try:
-            # Get adapter and execute
-            from evalview.core.adapter_factory import create_adapter
-
-            adapter = create_adapter(
-                adapter_name=self.adapter_name,
-                endpoint=self.endpoint,
-                **(self.adapter_config or {}),
-            )
-
-            replay_trace = await adapter.execute(test_case)
+            adapter = self._get_adapter()
+            replay_result_trace = await adapter.execute(query)
 
             # Diff the replay against the original
-            diff = self.diff_engine.compare(golden, replay_trace, actual_score=0.0)
+            diff = self.diff_engine.compare(golden, replay_result_trace, actual_score=0.0)
 
             return ReplayResult(
                 original_trace=original_trace,
-                replay_trace=replay_trace,
+                replay_trace=replay_result_trace,
                 diff=diff,
             )
 
@@ -283,12 +252,15 @@ class ReplayPipeline:
         self,
         traces: List[ExecutionTrace],
         queries: Optional[List[Optional[str]]] = None,
+        concurrency: int = 5,
     ) -> ReplayBatchResult:
         """Replay multiple production traces.
 
         Args:
             traces: List of production traces to replay.
             queries: Optional parallel list of original queries.
+            concurrency: Maximum number of concurrent replays (default 5).
+                         Set to 1 for sequential execution.
 
         Returns:
             ReplayBatchResult with per-trace results.
@@ -297,17 +269,31 @@ class ReplayPipeline:
 
         batch = ReplayBatchResult(started_at=datetime.now())
         queries = queries or [None] * len(traces)
+        concurrency = max(1, concurrency)
 
-        results = []
-        for i, (trace, query) in enumerate(zip(traces, queries)):
-            result = await self.replay_trace(
-                original_trace=trace,
-                query=query,
-                test_name=f"replay-{i + 1}",
-            )
-            results.append(result)
+        semaphore = asyncio.Semaphore(concurrency)
 
-        batch.results = results
+        async def _bounded_replay(
+            index: int, trace: ExecutionTrace, query: Optional[str],
+        ) -> Tuple[int, ReplayResult]:
+            async with semaphore:
+                result = await self.replay_trace(
+                    original_trace=trace,
+                    query=query,
+                    test_name=f"replay-{index + 1}",
+                )
+                return (index, result)
+
+        tasks = [
+            _bounded_replay(i, trace, query)
+            for i, (trace, query) in enumerate(zip(traces, queries))
+        ]
+        completed = await asyncio.gather(*tasks)
+
+        # Restore original order (gather preserves order, but be explicit)
+        ordered = sorted(completed, key=lambda pair: pair[0])
+        batch.results = [result for _, result in ordered]
+
         batch.completed_at = datetime.now()
         return batch
 

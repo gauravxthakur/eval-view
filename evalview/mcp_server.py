@@ -786,21 +786,8 @@ class MCPServer:
 
             # Include observability signals when present
             obs = result.observability
-            if obs.anomaly_count or obs.low_trust_count or obs.coherence_issue_count:
-                output["observability"] = {
-                    "behavioral_anomalies": {
-                        "count": obs.anomaly_count,
-                        "tests": obs.anomaly_tests,
-                    } if obs.anomaly_count else None,
-                    "low_trust": {
-                        "count": obs.low_trust_count,
-                        "tests": obs.low_trust_tests,
-                    } if obs.low_trust_count else None,
-                    "coherence_issues": {
-                        "count": obs.coherence_issue_count,
-                        "tests": obs.coherence_tests,
-                    } if obs.coherence_issue_count else None,
-                }
+            if obs.has_signals:
+                output["observability"] = obs.to_verdict_payload()
 
             return json.dumps(output, indent=2)
 

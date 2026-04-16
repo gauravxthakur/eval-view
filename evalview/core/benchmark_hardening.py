@@ -74,7 +74,7 @@ class GamingFlag:
     description: str
     evidence: Dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "check": self.check.value,
             "severity": self.severity.value,
@@ -120,7 +120,7 @@ class HardeningReport:
             f"(trust: {self.trust_score:.0%})"
         )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "flags": [f.to_dict() for f in self.flags],
             "trust_score": round(self.trust_score, 4),
@@ -312,7 +312,9 @@ def _check_too_perfect(
 
     if score >= perfect_threshold:
         # Perfect score + fast + few tools = highly suspicious
-        is_fast = trace.metrics.total_latency < MIN_EXPECTED_LATENCY_MS * 2
+        # Treat latency <= 0 as unmeasured (don't false-flag)
+        latency = trace.metrics.total_latency
+        is_fast = latency > 0 and latency < MIN_EXPECTED_LATENCY_MS * 2
         is_light = len(trace.steps) <= 2
 
         if is_fast and is_light:
@@ -343,18 +345,28 @@ def _check_too_perfect(
     return flags
 
 
+# Pre-compiled pattern: match file extensions at word boundary or end-of-string.
+# Requires the extension to be followed by a non-alphanumeric char or end-of-string
+# to avoid false positives like ".evalview" matching ".eval".
+_SUSPICIOUS_EXT_RE = re.compile(
+    r"(?:"
+    + "|".join(re.escape(ext) for ext in SUSPICIOUS_EXTENSIONS)
+    + r")(?=[^a-zA-Z0-9]|$)",
+    re.IGNORECASE,
+)
+
+
 def _check_abnormal_file_access(trace: ExecutionTrace) -> List[GamingFlag]:
     """Flag access to files with suspicious extensions."""
     flags: List[GamingFlag] = []
     suspicious_accesses: List[str] = []
 
     for step in trace.steps:
-        params_str = str(step.parameters).lower()
-        for ext in SUSPICIOUS_EXTENSIONS:
-            if ext in params_str:
-                suspicious_accesses.append(
-                    f"{step.tool_name} accessed *{ext} file"
-                )
+        params_str = str(step.parameters)
+        for match in _SUSPICIOUS_EXT_RE.finditer(params_str):
+            suspicious_accesses.append(
+                f"{step.tool_name} accessed *{match.group()} file"
+            )
 
     if suspicious_accesses:
         flags.append(GamingFlag(
@@ -373,6 +385,33 @@ def _check_abnormal_file_access(trace: ExecutionTrace) -> List[GamingFlag]:
 
 
 # ---------------------------------------------------------------------------
+# Trust computation
+# ---------------------------------------------------------------------------
+
+# Trust penalties per severity level
+TRUST_PENALTY_CRITICAL = 0.3
+TRUST_PENALTY_SUSPICIOUS = 0.15
+TRUST_PENALTY_INFO = 0.05
+
+
+def _compute_trust_score(flags: List[GamingFlag]) -> float:
+    """Compute a trust score from gaming flags.
+
+    Starts at 1.0 (fully trusted), reduced by each flag's severity.
+    Clamped to [0.0, 1.0].
+    """
+    trust = 1.0
+    for f in flags:
+        if f.severity == FlagSeverity.CRITICAL:
+            trust -= TRUST_PENALTY_CRITICAL
+        elif f.severity == FlagSeverity.SUSPICIOUS:
+            trust -= TRUST_PENALTY_SUSPICIOUS
+        elif f.severity == FlagSeverity.INFO:
+            trust -= TRUST_PENALTY_INFO
+    return round(max(0.0, min(1.0, trust)), 4)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -380,16 +419,16 @@ def _check_abnormal_file_access(trace: ExecutionTrace) -> List[GamingFlag]:
 def check_gaming(
     trace: ExecutionTrace,
     score: float,
-    test_case: Optional[TestCase] = None,
     min_latency_ms: float = MIN_EXPECTED_LATENCY_MS,
     min_tools: int = MIN_EXPECTED_TOOL_CALLS,
+    # Deprecated — accepted for backwards compatibility but unused.
+    test_case: Optional[TestCase] = None,
 ) -> HardeningReport:
     """Run all anti-gaming checks on an evaluation result.
 
     Args:
         trace: The execution trace to analyze.
         score: The evaluation score (0-100).
-        test_case: Optional test case for context-aware checks.
         min_latency_ms: Minimum expected latency for genuine execution.
         min_tools: Minimum expected tool calls.
 
@@ -404,21 +443,14 @@ def check_gaming(
     all_flags.extend(_check_too_perfect(trace, score))
     all_flags.extend(_check_abnormal_file_access(trace))
 
-    # Compute trust score: starts at 1.0, reduced by flags
-    trust = 1.0
-    for f in all_flags:
-        if f.severity == FlagSeverity.CRITICAL:
-            trust -= 0.3
-        elif f.severity == FlagSeverity.SUSPICIOUS:
-            trust -= 0.15
-        elif f.severity == FlagSeverity.INFO:
-            trust -= 0.05
-    trust = max(0.0, min(1.0, trust))
-
     return HardeningReport(
         flags=all_flags,
-        trust_score=round(trust, 4),
+        trust_score=_compute_trust_score(all_flags),
     )
+
+
+# Coefficient of variation below which latencies are "suspiciously uniform"
+BATCH_TIMING_CV_THRESHOLD = 0.05  # 5% — real tasks have natural variance
 
 
 def check_gaming_batch(
@@ -427,11 +459,13 @@ def check_gaming_batch(
     """Run anti-gaming checks across a batch of results.
 
     Detects batch-level patterns that individual checks miss:
-    - All tests scoring exactly 100 (statistically improbable)
+    - All tests scoring near-perfect (statistically improbable)
+    - High rate (80%+) of near-perfect scores
     - All tests completing in near-identical time (suggests automation gaming)
 
     Args:
-        results: List of dicts with 'trace', 'score', and optional 'test_case'.
+        results: List of dicts with ``score`` (float) and optionally
+                 ``latency_ms`` (float) for timing-similarity detection.
 
     Returns:
         HardeningReport with batch-level flags.
@@ -443,6 +477,8 @@ def check_gaming_batch(
 
     scores = [r.get("score", 0) for r in results]
     perfect_count = sum(1 for s in scores if s >= PERFECT_SCORE_THRESHOLD)
+
+    # --- Score distribution checks ---
 
     # Batch-level: suspiciously high perfect rate
     if len(results) >= 3 and perfect_count == len(results):
@@ -476,13 +512,36 @@ def check_gaming_batch(
             },
         ))
 
-    # Trust score
-    trust = 1.0
-    for f in flags:
-        if f.severity == FlagSeverity.CRITICAL:
-            trust -= 0.3
-        elif f.severity == FlagSeverity.SUSPICIOUS:
-            trust -= 0.15
-    trust = max(0.0, min(1.0, trust))
+    # --- Timing similarity check ---
+    # If all tests complete in near-identical time, it suggests pre-computed
+    # answers or automation gaming.  Real tasks have natural latency variance.
+    latencies = [
+        r["latency_ms"] for r in results
+        if isinstance(r.get("latency_ms"), (int, float)) and r["latency_ms"] > 0
+    ]
+    if len(latencies) >= 3:
+        mean_lat = sum(latencies) / len(latencies)
+        if mean_lat > 0:
+            variance = sum((x - mean_lat) ** 2 for x in latencies) / len(latencies)
+            std_dev = variance ** 0.5
+            cv = std_dev / mean_lat  # coefficient of variation
 
-    return HardeningReport(flags=flags, trust_score=round(trust, 4))
+            if cv < BATCH_TIMING_CV_THRESHOLD:
+                flags.append(GamingFlag(
+                    check=GamingCheck.SUSPICIOUSLY_FAST,
+                    severity=FlagSeverity.SUSPICIOUS,
+                    description=(
+                        f"All {len(latencies)} tests completed in near-identical time "
+                        f"(CV={cv:.1%}, mean={mean_lat:.0f}ms). Real multi-step tasks "
+                        f"exhibit natural latency variance."
+                    ),
+                    evidence={
+                        "latency_count": len(latencies),
+                        "mean_ms": round(mean_lat, 1),
+                        "std_dev_ms": round(std_dev, 1),
+                        "cv": round(cv, 4),
+                        "threshold_cv": BATCH_TIMING_CV_THRESHOLD,
+                    },
+                ))
+
+    return HardeningReport(flags=flags, trust_score=_compute_trust_score(flags))

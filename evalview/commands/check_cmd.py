@@ -1153,34 +1153,9 @@ def check(test_path: str, test: str, tags: tuple[str, ...], json_output: bool, f
     )
 
     # --- Enrich verdict payload with observability signals ---
-    if results:
-        _anom_tests = [
-            r.test_case for r in results
-            if getattr(r, "anomaly_report", None) and r.anomaly_report.get("anomalies")
-        ]
-        _low_trust_tests = [
-            r.test_case for r in results
-            if getattr(r, "trust_report", None) and r.trust_report.get("trust_score", 1.0) < 0.8
-        ]
-        _coherence_tests = [
-            r.test_case for r in results
-            if getattr(r, "coherence_report", None) and r.coherence_report.get("issues")
-        ]
-        if _anom_tests:
-            verdict_output.payload["behavioral_anomalies"] = {
-                "count": len(_anom_tests),
-                "tests": _anom_tests[:10],
-            }
-        if _low_trust_tests:
-            verdict_output.payload["low_trust_tests"] = {
-                "count": len(_low_trust_tests),
-                "tests": _low_trust_tests[:10],
-            }
-        if _coherence_tests:
-            verdict_output.payload["coherence_issues"] = {
-                "count": len(_coherence_tests),
-                "tests": _coherence_tests[:10],
-            }
+    from evalview.core.observability import extract_observability_summary
+    _obs = extract_observability_summary(results)
+    verdict_output.payload.update(_obs.to_verdict_payload())
 
     # Display results
     _display_check_results(
@@ -1275,6 +1250,71 @@ def check(test_path: str, test: str, tags: tuple[str, ...], json_output: bool, f
     # Auto-update badge if it exists
     from evalview.commands.badge_cmd import update_badge_after_check
     update_badge_after_check(diffs, len(diffs))
+
+    # ── Push results to EvalView Cloud (best-effort) ──
+    # Runs after all display/report work so it never blocks the user
+    # experience. Silently skips when EVALVIEW_API_TOKEN is unset.
+    try:
+        from evalview.cloud.push import _get_api_token, _get_git_context, _push_async
+        import asyncio as _cloud_asyncio, hashlib as _cloud_hash
+
+        _cloud_token = _get_api_token()
+        if _cloud_token:
+            _total_cost = sum(
+                r.trace.metrics.total_cost for r in results
+                if hasattr(r, "trace") and hasattr(r.trace, "metrics")
+            ) if results else 0
+            _total_latency = sum(
+                r.trace.metrics.total_latency for r in results
+                if hasattr(r, "trace") and hasattr(r.trace, "metrics")
+            ) if results else 0
+
+            _n_regression = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.REGRESSION)
+            _n_tools = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.TOOLS_CHANGED)
+            _n_output = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.OUTPUT_CHANGED)
+            _n_passed = sum(1 for _, d in diffs if d.overall_severity == DiffStatus.PASSED)
+
+            if _n_regression > 0:
+                _cloud_status = "regression"
+            elif _n_tools > 0:
+                _cloud_status = "tools_changed"
+            elif _n_output > 0:
+                _cloud_status = "output_changed"
+            else:
+                _cloud_status = "passed"
+
+            _cloud_payload = {
+                "run_id": _cloud_hash.md5(str(datetime.now()).encode()).hexdigest()[:8],
+                "status": _cloud_status,
+                "source": "ci" if __import__("os").environ.get("CI") else "cli",
+                **_get_git_context(),
+                "summary": {
+                    "total": len(diffs),
+                    "unchanged": _n_passed,
+                    "regressions": _n_regression,
+                    "tools_changed": _n_tools,
+                    "output_changed": _n_output,
+                },
+                "total_cost": _total_cost,
+                "total_latency_ms": _total_latency,
+                "diffs": [
+                    {
+                        "test_name": d.test_name,
+                        "status": d.overall_severity.value,
+                        "score_delta": d.score_diff or 0,
+                        "output_similarity": d.output_diff.similarity if d.output_diff else None,
+                        "tool_changes": len(d.tool_diffs) if d.tool_diffs else 0,
+                        "model_changed": d.model_changed,
+                    }
+                    for _, d in diffs
+                ],
+                "result_json": verdict_output.payload or {},
+            }
+            _dashboard_url = _cloud_asyncio.run(_push_async(_cloud_payload, _cloud_token))
+            if _dashboard_url and not json_output:
+                console.print(f"[green]☁  Pushed to cloud:[/green] {_dashboard_url}\n")
+    except Exception:
+        pass
 
     # Compute and exit with code
     exit_code = _compute_check_exit_code(

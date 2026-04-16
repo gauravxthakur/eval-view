@@ -224,9 +224,10 @@ def _build_message(
         e for e in (window.get("_entries") or [])
         if e.get("has_anomalies")
     ]
+    from evalview.core.observability import LOW_TRUST_THRESHOLD
     _low_trust_entries = [
         e for e in (window.get("_entries") or [])
-        if e.get("trust_score") is not None and e.get("trust_score", 1.0) < 0.8
+        if e.get("trust_score") is not None and e.get("trust_score", 1.0) < LOW_TRUST_THRESHOLD
     ]
     _coherence_entries = [
         e for e in (window.get("_entries") or [])

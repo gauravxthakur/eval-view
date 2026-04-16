@@ -50,6 +50,13 @@ from evalview.telemetry.decorators import track_command
     show_default=True,
     help="Timeout per replay in seconds.",
 )
+@click.option(
+    "--concurrency", "-c",
+    type=int,
+    default=5,
+    show_default=True,
+    help="Maximum number of concurrent replays.",
+)
 @track_command("replay-trace")
 def replay_trace(
     trace_file: str,
@@ -58,6 +65,7 @@ def replay_trace(
     max_traces: int,
     json_output: bool,
     timeout: float,
+    concurrency: int,
 ) -> None:
     """Replay production traces against the current agent and diff results.
 
@@ -108,6 +116,7 @@ def replay_trace(
     pipeline = ReplayPipeline(
         adapter_name=effective_adapter,
         endpoint=effective_endpoint,
+        timeout=timeout,
     )
 
     # Build ExecutionTrace objects from the JSONL data
@@ -116,17 +125,18 @@ def replay_trace(
     )
     from datetime import datetime
 
-    original_traces = []
-    queries = []
+    original_traces: List[Any] = []
+    queries: List[Optional[str]] = []
+    # Field names to check, ordered by likelihood — must match
+    # the heuristic in replay_pipeline._extract_query()
+    _QUERY_FIELDS = ("query", "prompt", "message", "input", "question", "user_message")
     for td in traces_data:
-        query = (
-            td.get("query")
-            or td.get("input")
-            or td.get("prompt")
-            or td.get("user_message")
-            or td.get("question")
-            or ""
-        )
+        query = ""
+        for key in _QUERY_FIELDS:
+            val = td.get(key)
+            if val and isinstance(val, str):
+                query = val
+                break
         queries.append(query)
 
         # Build a minimal ExecutionTrace from the production data
@@ -160,7 +170,7 @@ def replay_trace(
     # Run the replay pipeline
     try:
         batch_result = asyncio.run(
-            pipeline.replay_batch(original_traces, queries=queries)
+            pipeline.replay_batch(original_traces, queries=queries, concurrency=concurrency)
         )
     except Exception as e:
         console.print(f"[red]Replay failed: {e}[/red]")
@@ -177,7 +187,7 @@ def replay_trace(
             "stable": batch_result.stable,
             "results": [
                 {
-                    "query": queries[i][:200] if i < len(queries) else "",
+                    "query": (queries[i] or "")[:200] if i < len(queries) else "",
                     "status": r.status,
                     "summary": r.summary(),
                     "has_differences": r.has_differences,
@@ -191,7 +201,7 @@ def replay_trace(
         from evalview.core.diff import DiffStatus
 
         for i, r in enumerate(batch_result.results):
-            query_preview = queries[i][:60] if i < len(queries) else "?"
+            query_preview = (queries[i] or "")[:60] if i < len(queries) else "?"
             if r.error:
                 console.print(f"  [red]✗ ERROR[/red]: {query_preview}")
                 console.print(f"    [dim]{r.error}[/dim]")
@@ -211,12 +221,17 @@ def replay_trace(
         # Summary
         console.print(f"[bold]{batch_result.summary()}[/bold]\n")
 
-    sys.exit(1 if batch_result.changed > 0 else 0)
+    # Exit 1 on regressions or errors — benign changes (output_changed) are exit 0
+    has_regression = any(
+        r.status == "regression" for r in batch_result.results
+    )
+    sys.exit(1 if batch_result.failed > 0 or has_regression else 0)
 
 
 def _load_trace_file(path: Path, max_entries: int) -> List[Dict[str, Any]]:
     """Load production traces from a JSONL file."""
     entries: List[Dict[str, Any]] = []
+    skipped = 0
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -227,10 +242,16 @@ def _load_trace_file(path: Path, max_entries: int) -> List[Dict[str, Any]]:
                     entry = json.loads(line)
                     if isinstance(entry, dict):
                         entries.append(entry)
+                    else:
+                        skipped += 1
                 except json.JSONDecodeError:
+                    skipped += 1
                     continue
                 if len(entries) >= max_entries:
                     break
     except OSError as e:
+        console.print(f"[red]Could not read trace file: {e}[/red]")
         return []
+    if skipped > 0:
+        console.print(f"[yellow]Skipped {skipped} malformed line(s) in {path}[/yellow]")
     return entries

@@ -547,27 +547,20 @@ def _display_check_results(
                 console.print()
 
         # --- Aggregate anomaly/trust summary ---
-        if results:
-            _anom_count = sum(
-                1 for r in results
-                if getattr(r, "anomaly_report", None) and r.anomaly_report.get("anomalies")
-            )
-            _low_trust = [
-                r for r in results
-                if getattr(r, "trust_report", None) and r.trust_report.get("trust_score", 1.0) < 0.8
-            ]
-            if _anom_count > 0:
+        from evalview.core.observability import extract_observability_summary
+        _obs = extract_observability_summary(results)
+        if _obs.has_signals:
+            if _obs.anomaly_count > 0:
                 console.print(
-                    f"  [yellow]\u26a0 {_anom_count} test(s) with behavioral anomalies "
+                    f"  [yellow]\u26a0 {_obs.anomaly_count} test(s) with behavioral anomalies "
                     f"(tool loops, stalls, brittle recovery)[/yellow]"
                 )
-            if _low_trust:
+            if _obs.low_trust_count > 0:
                 console.print(
-                    f"  [yellow]\u26a0 {len(_low_trust)} test(s) with low trust score "
+                    f"  [yellow]\u26a0 {_obs.low_trust_count} test(s) with low trust score "
                     f"(possible benchmark gaming)[/yellow]"
                 )
-            if _anom_count > 0 or _low_trust:
-                console.print()
+            console.print()
 
         if is_first_check:
             Celebrations.first_check()
@@ -762,10 +755,11 @@ def _display_check_results(
 
                 # --- Trust score ---
                 if result_for_test and getattr(result_for_test, "trust_report", None):
+                    from evalview.core.observability import LOW_TRUST_THRESHOLD
                     tr = result_for_test.trust_report
                     trust_val = tr.get("trust_score", 1.0)
                     if trust_val < 1.0:
-                        trust_color = "red" if trust_val < 0.5 else "yellow" if trust_val < 0.8 else "dim"
+                        trust_color = "red" if trust_val < 0.5 else "yellow" if trust_val < LOW_TRUST_THRESHOLD else "dim"
                         console.print(
                             f"    [{trust_color}]Trust: {trust_val:.0%}[/{trust_color}] "
                             f"[dim]({tr.get('summary', '')})[/dim]"

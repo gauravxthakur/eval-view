@@ -217,6 +217,77 @@ def _extract_check_result(result: "EvaluationResult", check_name: str) -> Option
     return data
 
 
+def _normalize_anomaly_report(report: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Normalize an anomaly report dict for the Jinja template.
+
+    This adapter layer protects the template from changes in the underlying
+    AnomalyReport.to_dict() schema.  The template always reads:
+        .anomalies  — list of {pattern, severity, description}
+        .summary    — one-line string
+    """
+    if not report or not isinstance(report, dict):
+        return None
+    anomalies = report.get("anomalies") or []
+    return {
+        "anomalies": [
+            {
+                "pattern": a.get("pattern", ""),
+                "severity": a.get("severity", "warning"),
+                "description": a.get("description", ""),
+            }
+            for a in anomalies
+        ],
+        "summary": report.get("summary", ""),
+    }
+
+
+def _normalize_trust_report(report: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Normalize a trust report dict for the Jinja template.
+
+    Template reads: .trust_score (float 0-1), .flags (list), .summary (str)
+    """
+    if not report or not isinstance(report, dict):
+        return None
+    from evalview.core.observability import LOW_TRUST_THRESHOLD
+    flags = report.get("flags") or []
+    return {
+        "trust_score": float(report.get("trust_score", 1.0)),
+        "low_trust_threshold": LOW_TRUST_THRESHOLD,
+        "flags": [
+            {
+                "check": f.get("check", ""),
+                "severity": f.get("severity", "info"),
+                "description": f.get("description", ""),
+            }
+            for f in flags
+        ],
+        "summary": report.get("summary", ""),
+    }
+
+
+def _normalize_coherence_report(report: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Normalize a coherence report dict for the Jinja template.
+
+    Template reads: .issues (list), .coherence_score (float 0-1), .summary (str)
+    """
+    if not report or not isinstance(report, dict):
+        return None
+    issues = report.get("issues") or []
+    return {
+        "issues": [
+            {
+                "category": i.get("category", ""),
+                "severity": i.get("severity", "warning"),
+                "turn_index": i.get("turn_index", 0),
+                "description": i.get("description", ""),
+            }
+            for i in issues
+        ],
+        "coherence_score": float(report.get("coherence_score", 1.0)),
+        "summary": report.get("summary", ""),
+    }
+
+
 def _collect_models(results: List["EvaluationResult"]) -> List[str]:
     """Collect model labels across a run, ordered by frequency."""
     counts: Counter[str] = Counter()
@@ -766,9 +837,9 @@ def generate_visual_report(
             "safety": _extract_check_result(r, "safety"),
             "pii": _extract_check_result(r, "pii"),
             "forbidden_tools": _extract_check_result(r, "forbidden_tools"),
-            "anomaly_report": getattr(r, "anomaly_report", None),
-            "trust_report": getattr(r, "trust_report", None),
-            "coherence_report": getattr(r, "coherence_report", None),
+            "anomaly_report": _normalize_anomaly_report(getattr(r, "anomaly_report", None)),
+            "trust_report": _normalize_trust_report(getattr(r, "trust_report", None)),
+            "coherence_report": _normalize_coherence_report(getattr(r, "coherence_report", None)),
             "failure_reasons": failure_reasons,
             "output_rationale": output_rationale,
         })

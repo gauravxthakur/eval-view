@@ -28,7 +28,6 @@ All detection is deterministic — no LLM calls, no network I/O.
 from __future__ import annotations
 
 import logging
-from collections import Counter
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -71,7 +70,7 @@ class Anomaly:
     tool_name: Optional[str] = None
     evidence: Dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         """Serialize for JSON output."""
         return {
             "pattern": self.pattern.value,
@@ -118,7 +117,7 @@ class AnomalyReport:
         patterns = {a.pattern.value for a in self.anomalies}
         return f"Behavioral anomalies: {', '.join(parts)} — {', '.join(sorted(patterns))}"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "anomalies": [a.to_dict() for a in self.anomalies],
             "total_steps": self.total_steps,
@@ -176,6 +175,30 @@ def _step_fingerprint(step: StepTrace) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _make_loop_anomaly(
+    steps: List[StepTrace],
+    run_start: int,
+    run_end: int,
+) -> Anomaly:
+    """Build a TOOL_LOOP anomaly for a consecutive identical-call run."""
+    run_length = run_end - run_start
+    return Anomaly(
+        pattern=AnomalyPattern.TOOL_LOOP,
+        severity=AnomalySeverity.ERROR,
+        description=(
+            f"Tool '{steps[run_start].tool_name}' called {run_length} times "
+            f"consecutively with identical parameters (steps {run_start + 1}–{run_end}). "
+            f"Agent appears stuck in a loop."
+        ),
+        step_indices=list(range(run_start, run_end)),
+        tool_name=steps[run_start].tool_name,
+        evidence={
+            "consecutive_count": run_length,
+            "parameters": steps[run_start].parameters,
+        },
+    )
+
+
 def _detect_tool_loops(steps: List[StepTrace]) -> List[Anomaly]:
     """Detect consecutive identical tool calls (same tool + same params).
 
@@ -195,46 +218,39 @@ def _detect_tool_loops(steps: List[StepTrace]) -> List[Anomaly]:
         if fp == run_fp:
             continue
         # End of a run — check if it was long enough
-        run_length = i - run_start
-        if run_length >= LOOP_MIN_CONSECUTIVE:
-            anomalies.append(Anomaly(
-                pattern=AnomalyPattern.TOOL_LOOP,
-                severity=AnomalySeverity.ERROR,
-                description=(
-                    f"Tool '{steps[run_start].tool_name}' called {run_length} times "
-                    f"consecutively with identical parameters (steps {run_start + 1}–{i}). "
-                    f"Agent appears stuck in a loop."
-                ),
-                step_indices=list(range(run_start, i)),
-                tool_name=steps[run_start].tool_name,
-                evidence={
-                    "consecutive_count": run_length,
-                    "parameters": steps[run_start].parameters,
-                },
-            ))
+        if i - run_start >= LOOP_MIN_CONSECUTIVE:
+            anomalies.append(_make_loop_anomaly(steps, run_start, i))
         run_start = i
         run_fp = fp
 
     # Check the final run
-    run_length = len(steps) - run_start
-    if run_length >= LOOP_MIN_CONSECUTIVE:
-        anomalies.append(Anomaly(
-            pattern=AnomalyPattern.TOOL_LOOP,
-            severity=AnomalySeverity.ERROR,
-            description=(
-                f"Tool '{steps[run_start].tool_name}' called {run_length} times "
-                f"consecutively with identical parameters (steps {run_start + 1}–{len(steps)}). "
-                f"Agent appears stuck in a loop."
-            ),
-            step_indices=list(range(run_start, len(steps))),
-            tool_name=steps[run_start].tool_name,
-            evidence={
-                "consecutive_count": run_length,
-                "parameters": steps[run_start].parameters,
-            },
-        ))
+    if len(steps) - run_start >= LOOP_MIN_CONSECUTIVE:
+        anomalies.append(_make_loop_anomaly(steps, run_start, len(steps)))
 
     return anomalies
+
+
+def _make_stall_anomaly(
+    steps: List[StepTrace],
+    stall_start: int,
+    stall_end: int,
+    stall_length: int,
+) -> Anomaly:
+    """Build a PROGRESS_STALL anomaly."""
+    return Anomaly(
+        pattern=AnomalyPattern.PROGRESS_STALL,
+        severity=AnomalySeverity.WARNING,
+        description=(
+            f"{stall_length} consecutive tool calls (steps {stall_start + 1}–{stall_end}) "
+            f"used only previously-seen tools. Agent may be thrashing without "
+            f"making progress."
+        ),
+        step_indices=list(range(stall_start, stall_end)),
+        evidence={
+            "stall_length": stall_length,
+            "tools_in_stall": list({steps[j].tool_name for j in range(stall_start, stall_end)}),
+        },
+    )
 
 
 def _detect_progress_stalls(steps: List[StepTrace]) -> List[Anomaly]:
@@ -260,20 +276,7 @@ def _detect_progress_stalls(steps: List[StepTrace]) -> List[Anomaly]:
         if is_new:
             # Progress! Check if we were in a stall
             if stall_length >= STALL_WINDOW and stall_start is not None:
-                anomalies.append(Anomaly(
-                    pattern=AnomalyPattern.PROGRESS_STALL,
-                    severity=AnomalySeverity.WARNING,
-                    description=(
-                        f"{stall_length} consecutive tool calls (steps {stall_start + 1}–{i}) "
-                        f"used only previously-seen tools. Agent may be thrashing without "
-                        f"making progress."
-                    ),
-                    step_indices=list(range(stall_start, i)),
-                    evidence={
-                        "stall_length": stall_length,
-                        "tools_in_stall": list({steps[j].tool_name for j in range(stall_start, i)}),
-                    },
-                ))
+                anomalies.append(_make_stall_anomaly(steps, stall_start, i, stall_length))
             stall_start = None
             stall_length = 0
         else:
@@ -285,20 +288,7 @@ def _detect_progress_stalls(steps: List[StepTrace]) -> List[Anomaly]:
 
     # Check final window
     if stall_length >= STALL_WINDOW and stall_start is not None:
-        anomalies.append(Anomaly(
-            pattern=AnomalyPattern.PROGRESS_STALL,
-            severity=AnomalySeverity.WARNING,
-            description=(
-                f"{stall_length} consecutive tool calls (steps {stall_start + 1}–{len(steps)}) "
-                f"used only previously-seen tools. Agent may be thrashing without "
-                f"making progress."
-            ),
-            step_indices=list(range(stall_start, len(steps))),
-            evidence={
-                "stall_length": stall_length,
-                "tools_in_stall": list({steps[j].tool_name for j in range(stall_start, len(steps))}),
-            },
-        ))
+        anomalies.append(_make_stall_anomaly(steps, stall_start, len(steps), stall_length))
 
     return anomalies
 
@@ -330,20 +320,34 @@ def _detect_brittle_recovery(steps: List[StepTrace]) -> List[Anomaly]:
                     break
 
             if retry_count >= BRITTLE_MAX_IDENTICAL_RETRIES:
+                # Check if any retry succeeded — retrying a flaky API
+                # and eventually succeeding is less concerning
+                retries = steps[i + 1:j]
+                retries_succeeded = sum(1 for s in retries if s.success)
+                all_retries_failed = retries_succeeded == 0
+                severity = (
+                    AnomalySeverity.ERROR if all_retries_failed
+                    else AnomalySeverity.WARNING
+                )
+                outcome = (
+                    "All retries also failed"
+                    if all_retries_failed
+                    else f"{retries_succeeded}/{retry_count} retries succeeded"
+                )
                 anomalies.append(Anomaly(
                     pattern=AnomalyPattern.BRITTLE_RECOVERY,
-                    severity=AnomalySeverity.ERROR,
+                    severity=severity,
                     description=(
                         f"Tool '{step.tool_name}' failed at step {i + 1} "
                         f"(error: {step.error[:100]}), then was retried {retry_count} "
-                        f"time(s) with identical parameters. Agent did not adapt its "
-                        f"strategy after failure."
+                        f"time(s) with identical parameters. {outcome}."
                     ),
                     step_indices=list(range(i, j)),
                     tool_name=step.tool_name,
                     evidence={
                         "error": step.error[:200],
                         "retry_count": retry_count,
+                        "retries_succeeded": retries_succeeded,
                         "parameters": step.parameters,
                     },
                 ))
