@@ -474,11 +474,11 @@ def _display_check_results(
         _trust_json = []
         _coherence_json = []
         for r in (results or []):
-            if getattr(r, "anomaly_report", None):
+            if r.anomaly_report is not None:
                 _anomalies_json.append({"test": r.test_case, **r.anomaly_report})
-            if getattr(r, "trust_report", None):
+            if r.trust_report is not None:
                 _trust_json.append({"test": r.test_case, **r.trust_report})
-            if getattr(r, "coherence_report", None):
+            if r.coherence_report is not None:
                 _coherence_json.append({"test": r.test_case, **r.coherence_report})
         if _anomalies_json:
             output["behavioral_anomalies"] = _anomalies_json
