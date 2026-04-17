@@ -181,12 +181,24 @@ jobs:
         # Verify the noise log was populated. An empty file means the
         # monitor loop never completed a cycle, which is a regression in
         # the feature we are dogfooding.
+        #
+        # Exit code handling: `timeout --preserve-status 35s` sends SIGTERM
+        # at the deadline, which makes `evalview monitor` exit 143. That's
+        # the INTENDED termination path for this smoke test — we cap the
+        # monitor at 35s on purpose. So treat 0 (natural exit) and 143
+        # (SIGTERM from our timeout) as success. Everything else is a
+        # real failure.
         if [ ! -s .evalview/noise.jsonl ]; then
           echo "FAIL: .evalview/noise.jsonl was not written — monitor smoke test did not exercise the noise tracker" >&2
           echo "exit_code=1" >> $GITHUB_OUTPUT
+        elif [ "$MONITOR_EXIT" = "0" ] || [ "$MONITOR_EXIT" = "143" ]; then
+          echo "Noise log contents:"
+          cat .evalview/noise.jsonl
+          echo "exit_code=0" >> $GITHUB_OUTPUT
         else
           echo "Noise log contents:"
           cat .evalview/noise.jsonl
+          echo "Monitor exited with unexpected code $MONITOR_EXIT" >&2
           echo "exit_code=$MONITOR_EXIT" >> $GITHUB_OUTPUT
         fi
 
