@@ -15,10 +15,16 @@ from evalview.core.diff import (
 from evalview.core.root_cause import (
     Confidence,
     RootCauseCategory,
+    RootCauseAnalysis,
     analyze_root_cause,
     enrich_with_ai,
     enrich_diffs_with_ai,
+    enrich_with_narrative,
+    enrich_diffs_with_narrative,
     _build_ai_user_prompt,
+    _build_narrative_prompt,
+    _format_params_brief,
+    _strip_markdown_fences,
 )
 
 
@@ -537,49 +543,98 @@ class TestAIEnrichment:
 
     @pytest.mark.asyncio
     async def test_enrich_diffs_batch(self):
-        """enrich_diffs_with_ai processes multiple diffs."""
-        diff1 = _make_trace_diff(
-            tool_diffs=[],
-            output_similarity=0.60,
-            overall_severity=DiffStatus.REGRESSION,
-        )
-        diff1_obj = TraceDiff(
+        """enrich_diffs_with_ai processes multiple diffs and skips PASSED tests."""
+        failing_diff = TraceDiff(
             test_name="test-1",
             has_differences=True,
             tool_diffs=[],
-            output_diff=diff1.output_diff,
+            output_diff=OutputDiff(
+                similarity=0.60,
+                golden_preview="golden output",
+                actual_preview="actual output",
+                diff_lines=[],
+                severity=DiffStatus.OUTPUT_CHANGED,
+            ),
             score_diff=-10.0,
             latency_diff=0.0,
             overall_severity=DiffStatus.REGRESSION,
         )
-        diff2 = _make_trace_diff(
-            overall_severity=DiffStatus.PASSED,
-            score_diff=0.0,
-        )
-        diff2_obj = TraceDiff(
+        passing_diff = TraceDiff(
             test_name="test-2",
             has_differences=False,
             tool_diffs=[],
-            output_diff=diff2.output_diff,
+            output_diff=OutputDiff(
+                similarity=1.0,
+                golden_preview="",
+                actual_preview="",
+                diff_lines=[],
+                severity=DiffStatus.PASSED,
+            ),
             score_diff=0.0,
             latency_diff=0.0,
             overall_severity=DiffStatus.PASSED,
         )
 
         mock_client = AsyncMock()
-        mock_client.chat_completion.return_value = {
-            "explanation": "Drift detected."
-        }
-
-        diffs = [("test-1", diff1_obj), ("test-2", diff2_obj)]
+        mock_client.chat_completion.return_value = {"explanation": "Drift detected."}
 
         with patch("evalview.core.llm_provider.LLMClient", return_value=mock_client):
-            results = await enrich_diffs_with_ai(diffs)
-            # test-1 should be enriched (low confidence output drift)
+            results = await enrich_diffs_with_ai(
+                [("test-1", failing_diff), ("test-2", passing_diff)]
+            )
             assert "test-1" in results
             assert results["test-1"].ai_explanation == "Drift detected."
-            # test-2 is PASSED, should not appear
+            # PASSED test must not appear in results
             assert "test-2" not in results
+
+    @pytest.mark.asyncio
+    async def test_enrich_diffs_batch_high_confidence_not_enriched(self):
+        """HIGH-confidence diffs in the batch should not call the LLM."""
+        high_conf_diff = TraceDiff(
+            test_name="test-hc",
+            has_differences=True,
+            tool_diffs=[
+                ToolDiff(type="removed", position=0, golden_tool="tool_x", actual_tool=None,
+                         severity=DiffStatus.TOOLS_CHANGED, message="removed"),
+            ],
+            output_diff=OutputDiff(
+                similarity=1.0, golden_preview="", actual_preview="",
+                diff_lines=[], severity=DiffStatus.PASSED,
+            ),
+            score_diff=-5.0,
+            latency_diff=0.0,
+            overall_severity=DiffStatus.REGRESSION,
+        )
+        assert analyze_root_cause(high_conf_diff).confidence == Confidence.HIGH
+
+        mock_client = AsyncMock()
+        mock_client.chat_completion.return_value = {"explanation": "Should not be called."}
+
+        with patch("evalview.core.llm_provider.LLMClient", return_value=mock_client):
+            results = await enrich_diffs_with_ai([("test-hc", high_conf_diff)])
+            assert "test-hc" in results
+            mock_client.chat_completion.assert_not_called()
+            assert results["test-hc"].ai_explanation is None
+
+    @pytest.mark.asyncio
+    async def test_enrich_diffs_batch_empty_input(self):
+        """Empty diffs list returns an empty dict without error."""
+        results = await enrich_diffs_with_ai([])
+        assert results == {}
+
+    @pytest.mark.asyncio
+    async def test_ai_chat_completion_returns_none(self):
+        """None response from chat_completion is handled without raising."""
+        diff = _make_trace_diff(tool_diffs=[], output_similarity=0.60)
+        analysis = analyze_root_cause(diff)
+
+        mock_client = AsyncMock()
+        mock_client.chat_completion.return_value = None  # type: ignore[assignment]
+
+        with patch("evalview.core.llm_provider.LLMClient", return_value=mock_client):
+            result = await enrich_with_ai(analysis, diff)
+            # Should degrade gracefully — no ai_explanation set, no exception raised
+            assert result.ai_explanation is None
 
     def test_to_dict_includes_ai_explanation(self):
         """to_dict should include ai_explanation when set."""
@@ -803,3 +858,307 @@ class TestSlackNotifierRootCause:
         rc = analyze_root_cause(diff)
         assert rc is not None
         assert "extra_tool" in rc.summary
+
+
+# ---------------------------------------------------------------------------
+# Helpers shared by narrative tests
+# ---------------------------------------------------------------------------
+
+class _FakeMetrics:
+    latency = 42.0
+
+
+class _FakeStep:
+    """Minimal stand-in for StepTrace."""
+    def __init__(self, tool_name: str, parameters=None, output=None):
+        self.tool_name = tool_name
+        self.step_name = tool_name
+        self.parameters = parameters or {}
+        self.output = output
+        self.metrics = _FakeMetrics()
+
+
+class _FakeResult:
+    """Minimal stand-in for EvaluationResult."""
+    class _Trace:
+        def __init__(self, steps):
+            self.steps = steps
+    def __init__(self, test_case: str, steps):
+        self.test_case = test_case
+        self.trace = self._Trace(steps)
+
+
+class _FakeGolden:
+    """Minimal stand-in for GoldenTrace."""
+    class _Trace:
+        def __init__(self, steps):
+            self.steps = steps
+    def __init__(self, steps):
+        self.trace = self._Trace(steps)
+
+
+class TestNarrativeEnrichment:
+    """14 tests for the --explain narrative enrichment feature."""
+
+    # 1 ── always calls LLM even for HIGH-confidence diffs
+    @pytest.mark.asyncio
+    async def test_narrative_always_calls_ai_for_high_confidence(self):
+        """enrich_with_narrative calls LLM even for HIGH-confidence attributions."""
+        diff = _make_trace_diff(
+            tool_diffs=[
+                ToolDiff(type="removed", position=0, golden_tool="critical_tool",
+                         actual_tool=None, severity=DiffStatus.TOOLS_CHANGED, message="removed"),
+            ],
+        )
+        analysis = analyze_root_cause(diff)
+        assert analysis.confidence == Confidence.HIGH
+
+        mock_client = AsyncMock()
+        mock_client.chat_completion.return_value = {
+            "narrative": "The critical_tool was removed because the prompt changed."
+        }
+
+        with patch("evalview.core.llm_provider.LLMClient", return_value=mock_client):
+            result = await enrich_with_narrative(analysis, diff)
+            mock_client.chat_completion.assert_called_once()
+            assert result.narrative_root_cause == "The critical_tool was removed because the prompt changed."
+
+    # 2 ── LOW confidence
+    @pytest.mark.asyncio
+    async def test_narrative_calls_ai_for_low_confidence(self):
+        """LOW-confidence output drift gets a narrative."""
+        diff = _make_trace_diff(tool_diffs=[], output_similarity=0.60)
+        analysis = analyze_root_cause(diff)
+        assert analysis.confidence == Confidence.LOW
+
+        mock_client = AsyncMock()
+        mock_client.chat_completion.return_value = {"narrative": "Output drifted due to model update."}
+
+        with patch("evalview.core.llm_provider.LLMClient", return_value=mock_client):
+            result = await enrich_with_narrative(analysis, diff)
+            assert result.narrative_root_cause == "Output drifted due to model update."
+
+    # 3 ── MEDIUM confidence
+    @pytest.mark.asyncio
+    async def test_narrative_calls_ai_for_medium_confidence(self):
+        """MEDIUM-confidence tool reordering gets a narrative."""
+        diff = _make_trace_diff(
+            tool_diffs=[
+                ToolDiff(type="changed", position=0, golden_tool="a", actual_tool="b",
+                         severity=DiffStatus.TOOLS_CHANGED, message="changed"),
+            ],
+        )
+        analysis = analyze_root_cause(diff)
+        assert analysis.confidence == Confidence.MEDIUM
+
+        mock_client = AsyncMock()
+        mock_client.chat_completion.return_value = {"narrative": "Tools reordered by model."}
+
+        with patch("evalview.core.llm_provider.LLMClient", return_value=mock_client):
+            result = await enrich_with_narrative(analysis, diff)
+            assert result.narrative_root_cause == "Tools reordered by model."
+
+    # 4 ── LLM failure degrades gracefully
+    @pytest.mark.asyncio
+    async def test_narrative_failure_degrades_gracefully(self):
+        """If the LLM raises, narrative_root_cause is not set and no exception propagates."""
+        diff = _make_trace_diff(tool_diffs=[], output_similarity=0.60)
+        analysis = analyze_root_cause(diff)
+
+        mock_client = AsyncMock()
+        mock_client.chat_completion.side_effect = RuntimeError("Network timeout")
+
+        with patch("evalview.core.llm_provider.LLMClient", return_value=mock_client):
+            result = await enrich_with_narrative(analysis, diff)
+            assert result.narrative_root_cause is None
+            assert result.category == RootCauseCategory.OUTPUT_DRIFTED
+
+    # 5 ── no LLM provider
+    @pytest.mark.asyncio
+    async def test_narrative_no_provider_degrades_gracefully(self):
+        """No API key → narrative_root_cause stays None."""
+        diff = _make_trace_diff(tool_diffs=[], output_similarity=0.60)
+        analysis = analyze_root_cause(diff)
+
+        with patch("evalview.core.llm_provider.LLMClient", side_effect=ValueError("No API key")):
+            result = await enrich_with_narrative(analysis, diff)
+            assert result.narrative_root_cause is None
+
+    # 6 ── empty narrative ignored
+    @pytest.mark.asyncio
+    async def test_narrative_empty_response_not_set(self):
+        """An empty narrative string from the LLM is not stored."""
+        diff = _make_trace_diff(tool_diffs=[], output_similarity=0.60)
+        analysis = analyze_root_cause(diff)
+
+        mock_client = AsyncMock()
+        mock_client.chat_completion.return_value = {"narrative": ""}
+
+        with patch("evalview.core.llm_provider.LLMClient", return_value=mock_client):
+            result = await enrich_with_narrative(analysis, diff)
+            assert result.narrative_root_cause is None
+
+    # 7 ── None response from chat_completion handled
+    @pytest.mark.asyncio
+    async def test_narrative_none_response_handled(self):
+        """None return from chat_completion degrades gracefully."""
+        diff = _make_trace_diff(tool_diffs=[], output_similarity=0.60)
+        analysis = analyze_root_cause(diff)
+
+        mock_client = AsyncMock()
+        mock_client.chat_completion.return_value = None  # type: ignore[assignment]
+
+        with patch("evalview.core.llm_provider.LLMClient", return_value=mock_client):
+            result = await enrich_with_narrative(analysis, diff)
+            assert result.narrative_root_cause is None
+
+    # 8 ── prompt includes golden trace tool names
+    def test_narrative_prompt_includes_golden_steps(self):
+        """_build_narrative_prompt includes baseline step tool names."""
+        diff = _make_trace_diff(tool_diffs=[], output_similarity=0.70)
+        analysis = analyze_root_cause(diff)
+        golden = [_FakeStep("fetch_data"), _FakeStep("validate_schema")]
+        prompt = _build_narrative_prompt(analysis, diff, golden_steps=golden)
+        assert "fetch_data" in prompt
+        assert "validate_schema" in prompt
+        assert "BASELINE" in prompt
+
+    # 9 ── prompt includes actual trace tool names
+    def test_narrative_prompt_includes_actual_steps(self):
+        """_build_narrative_prompt includes current-run step tool names."""
+        diff = _make_trace_diff(tool_diffs=[], output_similarity=0.70)
+        analysis = analyze_root_cause(diff)
+        actual = [_FakeStep("fetch_data"), _FakeStep("write_output")]
+        prompt = _build_narrative_prompt(analysis, diff, actual_steps=actual)
+        assert "write_output" in prompt
+        assert "CURRENT" in prompt
+
+    # 10 ── batch skips PASSED tests
+    @pytest.mark.asyncio
+    async def test_narrative_batch_skips_passed_tests(self):
+        """enrich_diffs_with_narrative excludes PASSED diffs from the result dict."""
+        failing = TraceDiff(
+            test_name="failing",
+            has_differences=True,
+            tool_diffs=[],
+            output_diff=OutputDiff(
+                similarity=0.55, golden_preview="g", actual_preview="a",
+                diff_lines=[], severity=DiffStatus.OUTPUT_CHANGED,
+            ),
+            score_diff=-8.0, latency_diff=0.0,
+            overall_severity=DiffStatus.REGRESSION,
+        )
+        passing = TraceDiff(
+            test_name="passing",
+            has_differences=False,
+            tool_diffs=[],
+            output_diff=OutputDiff(
+                similarity=1.0, golden_preview="", actual_preview="",
+                diff_lines=[], severity=DiffStatus.PASSED,
+            ),
+            score_diff=0.0, latency_diff=0.0,
+            overall_severity=DiffStatus.PASSED,
+        )
+
+        mock_client = AsyncMock()
+        mock_client.chat_completion.return_value = {"narrative": "Drift."}
+
+        with patch("evalview.core.llm_provider.LLMClient", return_value=mock_client):
+            results = await enrich_diffs_with_narrative(
+                [("failing", failing), ("passing", passing)]
+            )
+            assert "failing" in results
+            assert results["failing"].narrative_root_cause == "Drift."
+            assert "passing" not in results
+
+    # 11 ── batch processes multiple failing diffs
+    @pytest.mark.asyncio
+    async def test_narrative_batch_processes_multiple_failures(self):
+        """enrich_diffs_with_narrative enriches all failing tests concurrently."""
+        def _failing(name: str) -> TraceDiff:
+            return TraceDiff(
+                test_name=name,
+                has_differences=True,
+                tool_diffs=[],
+                output_diff=OutputDiff(
+                    similarity=0.60, golden_preview="g", actual_preview="a",
+                    diff_lines=[], severity=DiffStatus.OUTPUT_CHANGED,
+                ),
+                score_diff=-5.0, latency_diff=0.0,
+                overall_severity=DiffStatus.REGRESSION,
+            )
+
+        mock_client = AsyncMock()
+        mock_client.chat_completion.return_value = {"narrative": "Narrative text."}
+
+        diffs = [("t1", _failing("t1")), ("t2", _failing("t2")), ("t3", _failing("t3"))]
+        with patch("evalview.core.llm_provider.LLMClient", return_value=mock_client):
+            results = await enrich_diffs_with_narrative(diffs)
+            assert set(results) == {"t1", "t2", "t3"}
+            assert mock_client.chat_completion.call_count == 3
+
+    # 12 ── empty input
+    @pytest.mark.asyncio
+    async def test_narrative_batch_empty_input(self):
+        """Empty diffs list returns an empty dict without error."""
+        results = await enrich_diffs_with_narrative([])
+        assert results == {}
+
+    # 13 ── narrative_root_cause in to_dict
+    def test_narrative_in_to_dict(self):
+        """to_dict includes narrative_root_cause when set."""
+        diff = _make_trace_diff(tool_diffs=[], output_similarity=0.60)
+        analysis = analyze_root_cause(diff)
+        analysis.narrative_root_cause = "Model drift caused this regression."
+        d = analysis.to_dict()
+        assert d["narrative_root_cause"] == "Model drift caused this regression."
+
+    # 14 ── narrative_root_cause absent from to_dict when None
+    def test_narrative_omitted_from_to_dict_when_none(self):
+        """to_dict does not include narrative_root_cause when it's None."""
+        diff = _make_trace_diff(
+            tool_diffs=[
+                ToolDiff(type="removed", position=0, golden_tool="x", actual_tool=None,
+                         severity=DiffStatus.TOOLS_CHANGED, message="removed"),
+            ],
+        )
+        analysis = analyze_root_cause(diff)
+        assert analysis.narrative_root_cause is None
+        d = analysis.to_dict()
+        assert "narrative_root_cause" not in d
+
+
+class TestHelperUtilities:
+    """Tests for shared utility helpers."""
+
+    def test_strip_markdown_fences_json(self):
+        """Strip ```json ... ``` wrappers."""
+        raw = '```json\n{"explanation": "test"}\n```'
+        assert _strip_markdown_fences(raw) == '{"explanation": "test"}'
+
+    def test_strip_markdown_fences_plain(self):
+        """Strip plain ``` ... ``` wrappers."""
+        raw = '```\n{"narrative": "text"}\n```'
+        assert _strip_markdown_fences(raw) == '{"narrative": "text"}'
+
+    def test_strip_markdown_fences_clean(self):
+        """Leave text without fences unchanged."""
+        raw = '{"explanation": "no fences here"}'
+        assert _strip_markdown_fences(raw) == raw
+
+    def test_format_params_brief_dict(self):
+        """Format a simple dict as a compact one-liner."""
+        result = _format_params_brief({"limit": 10, "query": "hello"})
+        assert "limit" in result
+        assert "hello" in result
+
+    def test_format_params_brief_empty(self):
+        """Empty params returns empty string."""
+        assert _format_params_brief({}) == ""
+        assert _format_params_brief(None) == ""
+
+    def test_format_params_brief_truncates_long_dict(self):
+        """Dicts with more than 4 keys show a '+N more' suffix."""
+        params = {f"key{i}": i for i in range(6)}
+        result = _format_params_brief(params)
+        assert "+2 more" in result

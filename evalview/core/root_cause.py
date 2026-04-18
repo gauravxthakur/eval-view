@@ -8,9 +8,11 @@ enrichment layer (``enrich_with_ai``) adds deeper explanations for
 low-confidence attributions using the project's existing LLM provider.
 """
 
+import asyncio
 import logging
+import re
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -57,6 +59,10 @@ class RootCauseAnalysis(BaseModel):
         default=None,
         description="LLM-generated deep analysis (only for low-confidence attributions when --ai-root-cause is used)",
     )
+    narrative_root_cause: Optional[str] = Field(
+        default=None,
+        description="LLM-generated trace-level narrative explanation (when --explain is used). Always produced regardless of confidence level.",
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -81,6 +87,8 @@ class RootCauseAnalysis(BaseModel):
         }
         if self.ai_explanation is not None:
             d["ai_explanation"] = self.ai_explanation
+        if self.narrative_root_cause is not None:
+            d["narrative_root_cause"] = self.narrative_root_cause
         return d
 
 
@@ -277,7 +285,18 @@ def _truncate(value: object, max_len: int = 50) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Optional AI enrichment
+# Shared utilities
+# ---------------------------------------------------------------------------
+
+def _strip_markdown_fences(text: str) -> str:
+    """Strip ```json ... ``` or ``` ... ``` wrappers that LLMs sometimes add."""
+    text = text.strip()
+    m = re.match(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", text, re.DOTALL)
+    return m.group(1).strip() if m else text
+
+
+# ---------------------------------------------------------------------------
+# Optional AI enrichment  (--ai-root-cause)
 # ---------------------------------------------------------------------------
 
 _AI_SYSTEM_PROMPT = """\
@@ -290,7 +309,7 @@ Be concise (2-4 sentences). Focus on:
 2. The likely IMPACT on end-user experience
 3. The most specific ACTION the developer should take
 
-Respond with ONLY a valid JSON object:
+Respond with ONLY a valid JSON object. No markdown. No code fences:
 {"explanation": "your 2-4 sentence analysis"}"""
 
 
@@ -382,15 +401,18 @@ async def enrich_with_ai(
             max_tokens=300,
         )
 
-        explanation = result.get("explanation", "")
+        if not isinstance(result, dict):
+            raise ValueError(f"Unexpected response type from LLM: {type(result).__name__}")
+
+        explanation = _strip_markdown_fences(result.get("explanation") or "")
         if explanation:
             analysis.ai_explanation = explanation
 
     except (ValueError, ImportError) as e:
-        # No LLM provider available — degrade gracefully
+        # No LLM provider available or no API key — degrade gracefully
         logger.debug("AI root cause enrichment unavailable: %s", e)
     except Exception as e:
-        # Any other error — log and continue with deterministic analysis
+        # Any other error (network, JSON parse, etc.) — log and continue
         logger.warning("AI root cause enrichment failed: %s", e)
 
     return analysis
@@ -406,9 +428,8 @@ async def enrich_diffs_with_ai(
 
     Returns:
         Dict mapping test_name to enriched RootCauseAnalysis (or None).
+        PASSED tests are excluded from the result dict.
     """
-    import asyncio
-
     results: Dict[str, Optional[RootCauseAnalysis]] = {}
 
     async def _enrich_one(name: str, diff: TraceDiff) -> None:
@@ -426,3 +447,217 @@ async def enrich_diffs_with_ai(
         await asyncio.gather(*tasks)
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Narrative enrichment  (--explain)
+# ---------------------------------------------------------------------------
+
+_NARRATIVE_SYSTEM_PROMPT = """\
+You are an expert AI agent evaluator. You will be given two execution traces for
+an agent test that regressed:
+  • The BASELINE trace (golden, known-good)
+  • The CURRENT trace (the run that regressed)
+
+Write a clear 3–5 sentence narrative that explains WHY this regression occurred,
+grounded in the specific differences between the two traces. Focus on:
+1. Where in the trace execution diverged from the baseline
+2. The most likely root cause (model drift, prompt change, tool schema update, etc.)
+3. The downstream impact on the agent's output or behaviour
+4. One concrete action the developer should take next
+
+Write in plain technical English. No bullet points. No headers.
+Respond with ONLY a valid JSON object. No markdown. No code fences:
+{"narrative": "your 3-5 sentence explanation"}"""
+
+
+def _format_params_brief(params: object, max_chars: int = 80) -> str:
+    """Format tool call params as a compact one-liner for inclusion in prompts."""
+    if not params:
+        return ""
+    if isinstance(params, dict):
+        parts: List[str] = []
+        items = list(params.items())
+        for k, v in items[:4]:
+            v_str = repr(v)
+            if len(v_str) > 20:
+                v_str = v_str[:17] + "..."
+            parts.append(f"{k}={v_str}")
+        if len(items) > 4:
+            parts.append(f"+{len(items) - 4} more")
+        return "(" + ", ".join(parts) + ")"
+    s = str(params)
+    return s[:max_chars] + ("..." if len(s) > max_chars else "")
+
+
+def _format_steps_for_prompt(steps: List[Any], label: str, max_steps: int = 15) -> List[str]:
+    """Format a list of StepTrace objects into compact prompt lines."""
+    if not steps:
+        return [f"{label}: (no steps)"]
+    lines = [f"{label} ({min(len(steps), max_steps)} of {len(steps)} steps):"]
+    for i, step in enumerate(steps[:max_steps]):
+        tool = str(getattr(step, "tool_name", None) or getattr(step, "step_name", "?"))
+        params = getattr(step, "parameters", None) or {}
+        params_str = _format_params_brief(params)
+        latency = getattr(getattr(step, "metrics", None), "latency", None)
+        latency_str = f" [{latency:.0f}ms]" if latency is not None else ""
+        raw_output = getattr(step, "output", None)
+        output_snippet = ""
+        if raw_output is not None:
+            out_str = str(raw_output)
+            if len(out_str) > 60:
+                out_str = out_str[:57] + "..."
+            output_snippet = f" → {out_str}"
+        lines.append(f"  {i + 1}. {tool}{params_str}{latency_str}{output_snippet}")
+    if len(steps) > max_steps:
+        lines.append(f"  … ({len(steps) - max_steps} more steps truncated)")
+    return lines
+
+
+def _build_narrative_prompt(
+    analysis: RootCauseAnalysis,
+    diff: TraceDiff,
+    golden_steps: Optional[List[Any]] = None,
+    actual_steps: Optional[List[Any]] = None,
+) -> str:
+    """Build the user prompt for --explain narrative enrichment."""
+    parts: List[str] = [
+        f"Test: {diff.test_name}",
+        f"Status: {diff.overall_severity.value}",
+        f"Deterministic root cause: {analysis.category.value} ({analysis.confidence.value} confidence)",
+        f"Summary: {analysis.summary}",
+        f"Score delta: {diff.score_diff:+.1f}",
+    ]
+
+    if diff.output_diff:
+        parts.append(f"Output similarity: {diff.output_diff.similarity:.0%}")
+
+    if diff.model_changed:
+        parts.append(
+            f"Model changed: {diff.golden_model_id} → {diff.actual_model_id}"
+        )
+
+    parts.append("")
+    parts.extend(_format_steps_for_prompt(golden_steps or [], "BASELINE trace"))
+    parts.append("")
+    parts.extend(_format_steps_for_prompt(actual_steps or [], "CURRENT trace"))
+
+    if diff.output_diff:
+        g_preview = (diff.output_diff.golden_preview or "")[:300]
+        a_preview = (diff.output_diff.actual_preview or "")[:300]
+        if g_preview or a_preview:
+            parts.append(f"\nBaseline output preview:\n{g_preview}")
+            parts.append(f"\nCurrent output preview:\n{a_preview}")
+
+    return "\n".join(parts)
+
+
+async def enrich_with_narrative(
+    analysis: RootCauseAnalysis,
+    diff: TraceDiff,
+    golden_steps: Optional[List[Any]] = None,
+    actual_steps: Optional[List[Any]] = None,
+) -> RootCauseAnalysis:
+    """Enrich a root cause analysis with a full-trace narrative explanation.
+
+    Unlike ``enrich_with_ai``, this always calls the LLM regardless of
+    confidence level — it feeds both traces rather than just the diff, so
+    it can produce a richer "what actually happened" story.
+
+    Degrades gracefully — if the LLM call fails, returns the original analysis.
+
+    Args:
+        analysis: The deterministic root cause analysis.
+        diff: The TraceDiff with full context.
+        golden_steps: Ordered list of StepTrace from the golden (baseline) run.
+        actual_steps: Ordered list of StepTrace from the current run.
+
+    Returns:
+        The same RootCauseAnalysis with ``narrative_root_cause`` populated
+        (or unchanged if LLM unavailable).
+    """
+    try:
+        from evalview.core.llm_provider import LLMClient
+
+        client = LLMClient()
+        user_prompt = _build_narrative_prompt(analysis, diff, golden_steps, actual_steps)
+
+        result = await client.chat_completion(
+            system_prompt=_NARRATIVE_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            temperature=0.2,
+            max_tokens=500,
+        )
+
+        if not isinstance(result, dict):
+            raise ValueError(f"Unexpected response type from LLM: {type(result).__name__}")
+
+        narrative = _strip_markdown_fences(result.get("narrative") or "")
+        if narrative:
+            analysis.narrative_root_cause = narrative
+
+    except (ValueError, ImportError) as e:
+        logger.debug("Narrative enrichment unavailable: %s", e)
+    except Exception as e:
+        logger.warning("Narrative enrichment failed: %s", e)
+
+    return analysis
+
+
+async def enrich_diffs_with_narrative(
+    diffs: List[Tuple[str, TraceDiff]],
+    golden_traces: Optional[Dict[str, Any]] = None,
+    results: Optional[List[Any]] = None,
+) -> Dict[str, Optional[RootCauseAnalysis]]:
+    """Enrich all non-passed diffs with full-trace narrative explanations.
+
+    Args:
+        diffs: List of (test_name, TraceDiff) tuples.
+        golden_traces: Optional dict mapping test_name → GoldenTrace (for baseline steps).
+        results: Optional list of EvaluationResult (for current-run steps).
+
+    Returns:
+        Dict mapping test_name to enriched RootCauseAnalysis (or None).
+        PASSED tests are excluded from the result dict.
+    """
+    # Build lookup for current-run steps
+    result_by_name: Dict[str, Any] = {}
+    if results:
+        for r in results:
+            name = getattr(r, "test_case", None)
+            if name:
+                result_by_name[name] = r
+
+    enriched: Dict[str, Optional[RootCauseAnalysis]] = {}
+
+    async def _enrich_one(name: str, diff: TraceDiff) -> None:
+        analysis = analyze_root_cause(diff)
+        if analysis is None:
+            return
+
+        # Extract step lists from golden trace and actual result
+        golden_steps: Optional[List[Any]] = None
+        actual_steps: Optional[List[Any]] = None
+        if golden_traces and name in golden_traces:
+            try:
+                golden_steps = list(golden_traces[name].trace.steps or [])
+            except AttributeError:
+                pass
+        if name in result_by_name:
+            try:
+                actual_steps = list(result_by_name[name].trace.steps or [])
+            except AttributeError:
+                pass
+
+        analysis = await enrich_with_narrative(analysis, diff, golden_steps, actual_steps)
+        enriched[name] = analysis
+
+    tasks = []
+    for name, diff in diffs:
+        if diff.overall_severity != DiffStatus.PASSED:
+            tasks.append(_enrich_one(name, diff))
+
+    if tasks:
+        await asyncio.gather(*tasks)
+
+    return enriched

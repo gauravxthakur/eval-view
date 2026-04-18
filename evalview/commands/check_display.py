@@ -112,9 +112,26 @@ def _print_output_diff(diff: "TraceDiff") -> None:
     console.print()
 
 
+def _print_narrative(root_cause: "RootCauseAnalysis") -> None:
+    """Print the --explain narrative panel (shown before technical root cause)."""
+    from rich.panel import Panel
+
+    if not root_cause.narrative_root_cause:
+        return
+
+    console.print(Panel(
+        f"[bold]🔍 Analysis[/bold]\n\n{root_cause.narrative_root_cause}",
+        border_style="cyan",
+        padding=(0, 1),
+    ))
+
+
 def _print_root_cause(root_cause: "RootCauseAnalysis") -> None:
     """Print root cause attribution for a regression."""
     from rich.panel import Panel
+
+    # Narrative (--explain) is shown first, prominently
+    _print_narrative(root_cause)
 
     confidence_color = {
         "high": "green",
@@ -129,7 +146,7 @@ def _print_root_cause(root_cause: "RootCauseAnalysis") -> None:
     if root_cause.suggested_fix:
         lines.append(f"  [dim]Fix:[/dim] {root_cause.suggested_fix}")
 
-    if getattr(root_cause, "ai_explanation", None):
+    if root_cause.ai_explanation:
         lines.append(f"  [cyan]🤖 AI:[/cyan] {root_cause.ai_explanation}")
 
     console.print(Panel(

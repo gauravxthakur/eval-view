@@ -584,14 +584,15 @@ def _print_baseline_context(goldens: List[Any], state: Any) -> None:
 @click.option("--budget", type=float, default=None, help="Maximum total budget in dollars.")
 @click.option("--timeout", type=float, default=120.0, help="Timeout per test in seconds (default: 120.0).")
 @click.option("--dry-run", "dry_run", is_flag=True, default=False, help="Preview test plan without executing.")
-@click.option("--ai-root-cause", "ai_root_cause", is_flag=True, default=False, help="Use AI to explain low-confidence regressions (requires LLM provider).")
+@click.option("--ai-root-cause", "ai_root_cause", is_flag=True, default=False, help="Use AI to explain low-confidence regressions (requires LLM provider, makes LLM API calls).")
+@click.option("--explain", "explain", is_flag=True, default=False, help="Deep semantic root-cause analysis: feeds full baseline+current traces to LLM for a narrative explanation (requires LLM provider, makes LLM API calls).")
 @click.option("--statistical", "statistical_runs", type=int, default=None, help="Run each test N times for variance analysis (e.g. --statistical 10).")
 @click.option("--auto-variant", "auto_variant", is_flag=True, default=False, help="Auto-discover and save distinct execution paths as golden variants (use with --statistical).")
 @click.option("--judge", "judge_model", default=None, help="Judge model for scoring (e.g. gpt-5.4-mini, sonnet, deepseek-chat).")
 @click.option("--no-judge", "no_judge", is_flag=True, default=False, help="Skip LLM-as-judge evaluation. Uses deterministic scoring only (scores capped at 75). No API key required.")
 @click.option("--heal", "heal_mode", is_flag=True, default=False, help="Auto-retry flaky failures, propose candidate variants. Never touches forbidden tools.")
 @track_command("check")
-def check(test_path: str, test: str, tags: tuple[str, ...], json_output: bool, fail_on: str, strict: bool, report_path: Optional[str], csv_path: Optional[str], semantic_diff: Optional[bool], budget: Optional[float], timeout: float, dry_run: bool, ai_root_cause: bool, statistical_runs: Optional[int], auto_variant: bool, judge_model: Optional[str], no_judge: bool, heal_mode: bool):
+def check(test_path: str, test: str, tags: tuple[str, ...], json_output: bool, fail_on: str, strict: bool, report_path: Optional[str], csv_path: Optional[str], semantic_diff: Optional[bool], budget: Optional[float], timeout: float, dry_run: bool, ai_root_cause: bool, explain: bool, statistical_runs: Optional[int], auto_variant: bool, judge_model: Optional[str], no_judge: bool, heal_mode: bool):
     """Decide whether it's safe to ship this agent change.
 
     Replays your test suite against the saved golden baselines and emits
@@ -620,6 +621,7 @@ def check(test_path: str, test: str, tags: tuple[str, ...], json_output: bool, f
         evalview check --budget 0.50                     # Cap spend at $0.50
         evalview check --timeout 60                      # 60 second timeout per test
         evalview check --ai-root-cause                   # AI-powered regression explanation
+        evalview check --explain                         # Deep trace narrative (feeds full traces to LLM)
         evalview check --statistical 10                  # Run each test 10 times, show variance
         evalview check --statistical 10 --auto-variant   # Auto-save distinct paths as variants
         evalview check --heal                            # Auto-retry flaky failures, propose variants
@@ -786,6 +788,12 @@ def check(test_path: str, test: str, tags: tuple[str, ...], json_output: bool, f
         if statistical_runs < 3:
             console.print("[red]Error: --statistical requires at least 3 runs.[/red]")
             sys.exit(1)
+
+        if (ai_root_cause or explain) and not json_output:
+            console.print(
+                "[yellow]⚠  --ai-root-cause / --explain are not applied in --statistical mode "
+                "(variance analysis exits before enrichment).[/yellow]\n"
+            )
 
         if not json_output:
             console.print(f"[cyan]▶ Statistical mode: running each test {statistical_runs} times...[/cyan]\n")
@@ -1120,14 +1128,41 @@ def check(test_path: str, test: str, tags: tuple[str, ...], json_output: bool, f
             )
             sys.exit(1)
 
-    # AI root cause enrichment (opt-in)
+    # AI root cause enrichment (opt-in via --ai-root-cause)
+    import asyncio as _asyncio_rc
     ai_root_causes = None
     if ai_root_cause and analysis["has_unresolved_failures"]:
-        import asyncio
         from evalview.core.root_cause import enrich_diffs_with_ai
         if not json_output:
             console.print("[dim]🤖 Running AI root cause analysis...[/dim]\n")
-        ai_root_causes = asyncio.run(enrich_diffs_with_ai(diffs))
+        ai_root_causes = _asyncio_rc.run(enrich_diffs_with_ai(diffs))
+
+    # Narrative enrichment (opt-in via --explain) — feeds full traces to LLM
+    narrative_root_causes = None
+    if explain and analysis["has_unresolved_failures"]:
+        from evalview.core.root_cause import enrich_diffs_with_narrative
+        if not json_output:
+            console.print("[dim]🔍 Running deep trace analysis (--explain)...[/dim]\n")
+        narrative_root_causes = _asyncio_rc.run(
+            enrich_diffs_with_narrative(diffs, golden_traces=golden_traces, results=results)
+        )
+
+    # Merge AI and narrative enrichments: both fields live on the same RootCauseAnalysis
+    # object so the display layer and HTML report have everything in one place.
+    combined_root_causes: Optional[Dict[str, Any]] = None
+    if ai_root_causes or narrative_root_causes:
+        combined_root_causes = {}
+        for name, _diff in diffs:
+            ai_rc = (ai_root_causes or {}).get(name)
+            nar_rc = (narrative_root_causes or {}).get(name)
+            if nar_rc is not None and ai_rc is not None:
+                # Carry ai_explanation onto the narrative-enriched object
+                nar_rc.ai_explanation = ai_rc.ai_explanation
+                combined_root_causes[name] = nar_rc
+            elif nar_rc is not None:
+                combined_root_causes[name] = nar_rc
+            elif ai_rc is not None:
+                combined_root_causes[name] = ai_rc
 
     from evalview.core.model_runtime_detector import analyze_model_runtime_change
 
@@ -1163,7 +1198,7 @@ def check(test_path: str, test: str, tags: tuple[str, ...], json_output: bool, f
         drift_tracker=drift_tracker,
         golden_traces=golden_traces,
         results=results,
-        ai_root_causes=ai_root_causes,
+        ai_root_causes=combined_root_causes,
         test_metadata=test_metadata,
         healing_summary=healing_summary,
         model_runtime_summary=model_runtime_summary,
@@ -1207,6 +1242,7 @@ def check(test_path: str, test: str, tags: tuple[str, ...], json_output: bool, f
             effective_all_passed=analysis["effective_all_passed"],
             test_metadata=test_metadata,
             active_tags=active_tags,
+            root_causes=combined_root_causes,
         )
         if not json_output:
             if auto_report:

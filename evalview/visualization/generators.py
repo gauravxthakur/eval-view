@@ -337,6 +337,7 @@ def _diff_rows(
     golden_traces: Optional[Dict[str, Any]] = None,
     actual_results: Optional[Dict[str, Any]] = None,
     test_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
+    root_causes: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     rows = []
     from evalview.core.root_cause import analyze_root_cause
@@ -406,7 +407,12 @@ def _diff_rows(
         if actual_results and test_name in actual_results:
             actual_score = round(getattr(actual_results[test_name], "score", 0), 1)
         baseline_score = round(actual_score - score_delta, 1) if actual_score is not None else None
-        root_cause = analyze_root_cause(d)
+        # Use pre-computed (AI/narrative enriched) root cause when available;
+        # fall back to deterministic analysis so the report always has context.
+        if root_causes and test_name in root_causes:
+            root_cause = root_causes[test_name]
+        else:
+            root_cause = analyze_root_cause(d)
         meta = (test_metadata or {}).get(test_name, {})
         tags = list(meta.get("tags") or [])
 
@@ -463,6 +469,8 @@ def _diff_rows(
             "root_cause_summary": getattr(root_cause, "summary", ""),
             "root_cause_category": getattr(getattr(root_cause, "category", None), "value", ""),
             "root_cause_fix": getattr(root_cause, "suggested_fix", None),
+            "root_cause_ai": getattr(root_cause, "ai_explanation", None),
+            "root_cause_narrative": getattr(root_cause, "narrative_root_cause", None),
             "recommendations": [r.to_dict() for r in _get_recommendations(d)],
         })
     return rows
@@ -651,6 +659,7 @@ def generate_visual_report(
     effective_all_passed: Optional[bool] = None,
     test_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
     active_tags: Optional[List[str]] = None,
+    root_causes: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Generate a self-contained visual HTML report.
 
@@ -847,7 +856,7 @@ def generate_visual_report(
             "output_rationale": output_rationale,
         })
     actual_results_dict = {r.test_case: r for r in results}
-    diff_rows = _diff_rows(diffs or [], golden_traces, actual_results_dict, test_metadata)
+    diff_rows = _diff_rows(diffs or [], golden_traces, actual_results_dict, test_metadata, root_causes)
     timeline = _timeline_data(results)
     behavior_summary = _behavior_summary(results, diff_rows, test_metadata, healing_summary)
     adapter_compare = _compute_adapter_compare(results)
@@ -1549,6 +1558,12 @@ table td,table th{transition:background .1s}
           <span class="mono" style="color:var(--text)">{{ d.actual_runtime_fingerprint }}</span>
         </div>
         {% endif %}
+        {% if d.root_cause_narrative %}
+        <div style="padding:12px 18px;border-top:1px solid var(--border);background:rgba(6,182,212,0.06)">
+          <div class="col-title" style="margin-bottom:6px;color:#06b6d4">🔍 Analysis</div>
+          <div style="font-size:12px;color:var(--text-2);line-height:1.6">{{ d.root_cause_narrative }}</div>
+        </div>
+        {% endif %}
         {% if d.root_cause_summary %}
         <div style="padding:12px 18px;border-top:1px solid var(--border);font-size:12px;color:var(--text-2)">
           <div class="col-title" style="margin-bottom:6px">Why This Changed</div>
@@ -1557,6 +1572,7 @@ table td,table th{transition:background .1s}
           </div>
           <div>{{ d.root_cause_summary }}</div>
           {% if d.root_cause_fix %}<div style="margin-top:6px;color:var(--text-3)">Suggested fix: {{ d.root_cause_fix }}</div>{% endif %}
+          {% if d.root_cause_ai %}<div style="margin-top:8px;padding:6px 8px;background:rgba(6,182,212,0.08);border-radius:4px"><span style="color:#06b6d4">🤖 AI:</span> {{ d.root_cause_ai }}</div>{% endif %}
         </div>
         {% endif %}
         {% if d.recommendations %}
